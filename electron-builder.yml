@@ -63,6 +63,9 @@ mac:
 dmg:
   artifactName: ${name}-${version}-${arch}.${ext}
 linux:
+  # Use PNG directly; falling back to mac.icon downloads/runs the ICNS converter.
+  icon: build/icon-v3.png
+  syncDesktopName: true
   target:
     - AppImage
     - snap
@@ -70,6 +73,8 @@ linux:
   maintainer: calendarli and kairlec
   category: Utility
 appImage:
+  # Override global maximum (XZ); mksquashfs runs without progress output.
+  compression: gzip
   artifactName: ${name}-${version}-${arch}.${ext}
 npmRebuild: true
 publish:
