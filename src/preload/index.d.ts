@@ -1,3 +1,4 @@
+import type { SerialPortInfo } from '@common/serial-port'
 import type { UpdateState } from '@common/update'
 import type {
   FirmwareFamily,
@@ -7,14 +8,6 @@ import type {
   FirmwareTool
 } from '@common/firmware'
 
-type SerialPortInfo = {
-  path: string
-  manufacturer?: string
-  serialNumber?: string
-  friendlyName?: string
-  vendorId?: string
-  productId?: string
-}
 type SerialOptions = {
   path: string
   baudRate: number
@@ -80,6 +73,7 @@ declare global {
       openModbusMap(): Promise<{ path: string; name: string; base64: string } | null>
       saveModbusMap(config: unknown): Promise<string | null>
       listPorts(): Promise<SerialPortInfo[]>
+      onPortsChanged(callback: (ports: SerialPortInfo[]) => void): () => void
       getVirtualPortStatus(): Promise<{
         installed: boolean
         pairs: string[]

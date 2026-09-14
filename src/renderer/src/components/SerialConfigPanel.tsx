@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { serialPortLabel } from '@common/serial-port'
 import type { DataBits, Parity, Port, SerialConfig, SerialFramingMode, StopBits } from '../types'
 
 type Props = {
@@ -104,6 +105,9 @@ export function SerialConfigPanel(props: Props): React.JSX.Element {
                       onChange={(event) => props.onChange(config.id, { path: event.target.value })}
                     >
                       <option value="">选择串口</option>
+                      {config.path && !props.ports.some((port) => port.path === config.path) && (
+                        <option value={config.path}>{config.path} · 设备已断开</option>
+                      )}
                       {props.ports.map((port) => (
                         <option
                           key={port.path}
@@ -113,10 +117,7 @@ export function SerialConfigPanel(props: Props): React.JSX.Element {
                             (item) => item.id !== config.id && item.path === port.path
                           )}
                         >
-                          {port.path}
-                          {port.friendlyName || port.manufacturer
-                            ? ` · ${port.friendlyName || port.manufacturer}`
-                            : ''}
+                          {serialPortLabel(port)}
                         </option>
                       ))}
                     </select>

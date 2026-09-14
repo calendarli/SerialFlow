@@ -7,6 +7,8 @@ import {
   type FirmwareTool
 } from '@common/firmware'
 
+import { serialPortLabel, type SerialPortInfo } from '@common/serial-port'
+
 const storageKey = 'serialflow.firmware.settings.v1'
 const defaults: FirmwareRequest = {
   family: 'stm32',
@@ -65,7 +67,7 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel(): React.JSX.
   const [initial] = useState(loadSettings)
   const [request, setRequest] = useState(initial.request)
   const [toolPaths, setToolPaths] = useState(initial.tools)
-  const [ports, setPorts] = useState<Array<{ path: string; manufacturer?: string }>>([])
+  const [ports, setPorts] = useState<SerialPortInfo[]>([])
   const [probes, setProbes] = useState<string[]>([])
   const [tool, setTool] = useState<FirmwareTool | null>(null)
   const [state, setState] = useState<FirmwareState | null>(null)
@@ -96,6 +98,7 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel(): React.JSX.
   useEffect(() => {
     let alive = true
     let received = false
+    const unsubscribePorts = window.api.onPortsChanged(setPorts)
     const unsubscribe = window.api.onFirmwareProgress((next) => {
       received = true
       setState(next)
@@ -120,6 +123,7 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel(): React.JSX.
     return () => {
       alive = false
       unsubscribe()
+      unsubscribePorts()
     }
   }, [])
 
@@ -253,10 +257,12 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel(): React.JSX.
                   onChange={(e) => patch({ port: e.target.value })}
                 >
                   <option value="">选择串口</option>
+                  {request.port && !ports.some((port) => port.path === request.port) && (
+                    <option value={request.port}>{request.port} · 设备已断开</option>
+                  )}
                   {ports.map((port) => (
                     <option key={port.path} value={port.path}>
-                      {port.path}
-                      {port.manufacturer ? ` · ${port.manufacturer}` : ''}
+                      {serialPortLabel(port)}
                     </option>
                   ))}
                 </select>

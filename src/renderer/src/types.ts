@@ -1,8 +1,6 @@
-export type Port = {
-  path: string
-  manufacturer?: string
-  friendlyName?: string
-}
+import type { SerialPortInfo } from '@common/serial-port'
+
+export type Port = SerialPortInfo
 export type SerialConfig = {
   id: number
   name: string

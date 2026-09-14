@@ -12,6 +12,18 @@ import { FirmwareManager } from './firmware/manager'
 import type { FirmwareFamily, FirmwareRequest } from '@common/firmware'
 import { autoUpdater } from 'electron-updater'
 import { UpdateManager } from './update-manager'
+import { SerialPortMonitor } from './serial-port-monitor'
+import { createSerialPortLister } from './serial-port-list'
+
+const serialPortMonitor = new SerialPortMonitor(
+  createSerialPortLister(() => SerialPort.list()),
+  (ports) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed() && !window.webContents.isDestroyed())
+        window.webContents.send('serial:portsChanged', ports)
+    }
+  }
+)
 
 // Retain existing settings when upgrading installations created under the old package name.
 app.setName('SerialFlow')
@@ -493,7 +505,7 @@ function registerSerialHandlers(): void {
   })
   ipcMain.handle('serial:list', async () => {
     try {
-      return await SerialPort.list()
+      return await serialPortMonitor.refresh()
     } catch (error) {
       throw explainRuntimeError(error, '读取端口列表')
     }
@@ -794,6 +806,7 @@ app.whenReady().then(() => {
   app.on('browser-window-created', (_, window) => optimizer.watchWindowShortcuts(window))
   registerSerialHandlers()
   createWindow()
+  serialPortMonitor.start()
   const updates = new UpdateManager(
     autoUpdater,
     (state) => {
@@ -844,6 +857,7 @@ app.whenReady().then(() => {
 })
 
 app.on('before-quit', (event) => {
+  serialPortMonitor.stop()
   if (quitReady) return
   event.preventDefault()
   if (quitting) return

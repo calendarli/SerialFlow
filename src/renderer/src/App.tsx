@@ -1,3 +1,4 @@
+import { normalizeSerialPortPath } from '@common/serial-port'
 import {
   interactionDisplayKey,
   loadInteractionDisplay,
@@ -430,7 +431,7 @@ function App(): React.JSX.Element {
   const targetPortOptions = useMemo(() => {
     const seen = new Set<string>()
     return serialConfigs.flatMap((config, index) => {
-      const path = config.path.trim().toUpperCase()
+      const path = normalizeSerialPortPath(config.path)
       if (!path || seen.has(path)) return []
       seen.add(path)
       return [{ path, name: config.name?.trim() || `串口组 ${index + 1}` }]
@@ -655,22 +656,26 @@ function App(): React.JSX.Element {
     }
   }, [autoPauseEnabled, autoPauseHex, autoPausePattern, autoPauseRegex])
 
+  const applyPorts = useCallback((rawList: Port[]) => {
+    const seen = new Set<string>()
+    const list = rawList.filter((port) => {
+      const path = normalizeSerialPortPath(port.path)
+      if (!path || seen.has(path)) return false
+      seen.add(path)
+      return true
+    })
+    setPorts(list)
+    setSerialConfigs((current) =>
+      current.map((config, index) =>
+        index === 0 && !config.path && list[0]?.path ? { ...config, path: list[0].path } : config
+      )
+    )
+  }, [])
+
   const refreshPorts = useCallback(async () => {
     try {
-      const rawList = await window.api.listPorts()
-      const seen = new Set<string>()
-      const list = rawList.filter((port) => {
-        const path = port.path.trim().toUpperCase()
-        if (!path || seen.has(path)) return false
-        seen.add(path)
-        return true
-      })
-      setPorts(list)
-      setSerialConfigs((current) =>
-        current.map((config, index) =>
-          index === 0 && !config.path && list[0]?.path ? { ...config, path: list[0].path } : config
-        )
-      )
+      const list = await window.api.listPorts()
+      applyPorts(list)
       setMessage(
         list.length
           ? `发现 ${list.length} 个串口`
@@ -679,7 +684,7 @@ function App(): React.JSX.Element {
     } catch (error) {
       showError(error, '刷新串口列表失败')
     }
-  }, [showError])
+  }, [applyPorts, showError])
 
   const send = useCallback(
     async (override?: {
@@ -751,9 +756,13 @@ function App(): React.JSX.Element {
   )
 
   useEffect(() => {
+    const unsubscribe = window.api.onPortsChanged(applyPorts)
     const timer = window.setTimeout(() => void refreshPorts(), 0)
-    return () => window.clearTimeout(timer)
-  }, [refreshPorts])
+    return () => {
+      window.clearTimeout(timer)
+      unsubscribe()
+    }
+  }, [applyPorts, refreshPorts])
 
   useEffect(() => {
     frequencySampleRef.current = { ...trafficEventsRef.current, time: performance.now() }

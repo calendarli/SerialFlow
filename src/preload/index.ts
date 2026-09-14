@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { FirmwareFamily, FirmwareRequest, FirmwareState } from '@common/firmware'
 import type { UpdateState } from '@common/update'
+import type { SerialPortInfo } from '@common/serial-port'
 
 // Sandboxed preload scripts can only load Electron's built-in modules.
 // Keep the renderer-facing compatibility surface deliberately small.
@@ -57,6 +58,12 @@ const api = {
   openModbusMap: () => ipcRenderer.invoke('modbus:openMap'),
   saveModbusMap: (config: unknown) => ipcRenderer.invoke('modbus:saveMap', config),
   listPorts: () => ipcRenderer.invoke('serial:list'),
+  onPortsChanged: (callback: (ports: SerialPortInfo[]) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, ports: SerialPortInfo[]): void =>
+      callback(ports)
+    ipcRenderer.on('serial:portsChanged', listener)
+    return () => ipcRenderer.removeListener('serial:portsChanged', listener)
+  },
   getVirtualPortStatus: () => ipcRenderer.invoke('virtualPorts:status'),
   createVirtualPortPair: (first: string, second: string) =>
     ipcRenderer.invoke('virtualPorts:create', first, second),
