@@ -28,9 +28,13 @@ import { Sidebar } from './components/Sidebar'
 import {
   createAutoReplyTransfer,
   createQuickCommandsTransfer,
-  parseAutoReplyTransfer,
-  parseQuickCommandsTransfer
+  parseAutoReplyTransfer
 } from './config-transfer'
+import {
+  applyQuickCommandImport,
+  type QuickCommandImport,
+  type QuickCommandImportOptions
+} from './quick-command-import'
 import { defaultSerialFraming, SerialFramer } from './serial-framer'
 import { autoReplyProgramRuntime } from './scripts/auto-reply-program'
 import { fillGlobalPlaceholders, normalizeGroupGlobals } from './scripts/group-globals'
@@ -1297,20 +1301,16 @@ function App(): React.JSX.Element {
       showError(error, '导出快捷指令失败')
     }
   }
-  const importQuickCommands = async (): Promise<boolean> => {
+  const importQuickCommands = (
+    imported: QuickCommandImport,
+    options: QuickCommandImportOptions
+  ): boolean => {
     try {
-      const selected = await window.api.openConfig('quick-commands')
-      if (!selected) return false
-      const imported = parseQuickCommandsTransfer(selected.content)
-      if (
-        (commands.length > 0 || commandGroups.length > 0) &&
-        !window.confirm('导入将替换当前全部快捷指令和分组，是否继续？')
-      )
-        return false
-      setCommands(imported.commands)
-      setCommandGroups(imported.groups)
+      const result = applyQuickCommandImport({ groups: commandGroups, commands }, imported, options)
+      setCommands(result.commands)
+      setCommandGroups(result.groups)
       setMessage(
-        `快捷指令已导入：${imported.commands.length} 条指令，${imported.groups.length} 个分组`
+        `${imported.source} 快捷指令已${options.mode === 'group' ? `导入新组“${options.groupName}”` : '替换导入'}：${imported.commands.length} 条指令，${imported.groups.length} 个分组`
       )
       return true
     } catch (error) {

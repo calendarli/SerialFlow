@@ -14,6 +14,7 @@ import { autoUpdater } from 'electron-updater'
 import { UpdateManager } from './update-manager'
 import { SerialPortMonitor } from './serial-port-monitor'
 import { createSerialPortLister } from './serial-port-list'
+import { decodeConfigText } from '../common/config-text'
 
 const serialPortMonitor = new SerialPortMonitor(
   createSerialPortLister(() => SerialPort.list()),
@@ -675,10 +676,24 @@ function registerSerialHandlers(): void {
     const result = await dialog.showOpenDialog(mainWindow, {
       title: `导入${options.title}`,
       properties: ['openFile'],
-      filters: [{ name: `SerialFlow ${options.title}`, extensions: ['json'] }]
+      filters:
+        kind === 'quick-commands'
+          ? [
+              { name: '快捷指令（SerialFlow / SSCOM / VOFA+）', extensions: ['json', 'ini'] },
+              { name: 'SSCOM 配置', extensions: ['ini'] },
+              { name: 'SerialFlow / VOFA+ 命令组', extensions: ['json'] }
+            ]
+          : [{ name: `SerialFlow ${options.title}`, extensions: ['json'] }]
     })
     if (result.canceled || !result.filePaths[0]) return null
-    return { path: result.filePaths[0], content: await readFile(result.filePaths[0], 'utf8') }
+    const path = result.filePaths[0]
+    return {
+      path,
+      content: decodeConfigText(
+        await readFile(path),
+        kind === 'quick-commands' && /\.ini$/i.test(path)
+      )
+    }
   })
   ipcMain.handle('modbus:openMap', async () => {
     if (!mainWindow) throw new Error('应用窗口尚未就绪')

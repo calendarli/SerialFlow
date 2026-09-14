@@ -7,6 +7,12 @@ import { evaluateGlobalPlaceholders } from '../scripts/group-globals'
 import { normalizeCommandExtensions } from '../command-settings'
 import { CommandRunner } from '../command-runner'
 import {
+  parseQuickCommandImport,
+  type QuickCommandImport,
+  type QuickCommandImportOptions
+} from '../quick-command-import'
+import { QuickCommandImportDialog } from './QuickCommandImportDialog'
+import {
   CommandProgramRuntime,
   defaultCommandProgram,
   type CommandPhase
@@ -26,7 +32,7 @@ type Props = {
     crcMode?: CrcMode | null,
     targetPort?: string
   ) => Promise<boolean>
-  onImport: () => Promise<boolean>
+  onImport: (imported: QuickCommandImport, options: QuickCommandImportOptions) => boolean
   onExport: () => void
 }
 type Draft = {
@@ -164,6 +170,11 @@ function buildCommand(
 
 export const CommandsPanel = memo(function CommandsPanel(props: Props): React.JSX.Element {
   const [creating, setCreating] = useState(false)
+  const [pendingImport, setPendingImport] = useState<{
+    imported: QuickCommandImport
+    groupName: string
+  } | null>(null)
+  const [importLoading, setImportLoading] = useState(false)
   const [creatingGroup, setCreatingGroup] = useState(false)
   const [targetParentId, setTargetParentId] = useState<number | null>(null)
   const [editingCommandId, setEditingCommandId] = useState<number | null>(null)
@@ -783,13 +794,35 @@ export const CommandsPanel = memo(function CommandsPanel(props: Props): React.JS
     clearDrag()
   }
   const importCommands = async (): Promise<void> => {
-    if (!(await props.onImport())) return
-    for (const id of activeGroupLoopIds)
-      groupLoopTokensRef.current.set(id, (groupLoopTokensRef.current.get(id) || 0) + 1)
-    runner.stopAll()
-    setActiveAutoSendIds(new Set())
-    setActiveGroupLoopIds(new Set())
-    setCollapsed(new Set())
+    setImportLoading(true)
+    try {
+      const selected = await window.api.openConfig('quick-commands')
+      if (!selected) return
+      const imported = parseQuickCommandImport(selected.content)
+      const filename = selected.path.split(/[\\/]/).pop() || imported.source
+      setPendingImport({
+        imported,
+        groupName: filename.replace(/(?:\.cmds)?\.(json|ini)$/i, '') || imported.source
+      })
+      setError('')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setImportLoading(false)
+    }
+  }
+  const confirmImport = (options: QuickCommandImportOptions): void => {
+    if (!pendingImport || !props.onImport(pendingImport.imported, options)) return
+    if (options.mode === 'replace') {
+      for (const id of activeGroupLoopIds)
+        groupLoopTokensRef.current.set(id, (groupLoopTokensRef.current.get(id) || 0) + 1)
+      runner.stopAll(false)
+      setActiveAutoSendIds(new Set())
+      setActiveHoldIds(new Set())
+      setActiveGroupLoopIds(new Set())
+      setCollapsed(new Set())
+    }
+    setPendingImport(null)
     setMenu(null)
     setError('')
   }
@@ -1051,7 +1084,13 @@ export const CommandsPanel = memo(function CommandsPanel(props: Props): React.JS
           <small>右键新建 · 拖动名称调整归属</small>
         </div>
         <div className="side-section-actions">
-          <button onClick={() => void importCommands()}>导入</button>
+          <button
+            title="导入 SerialFlow JSON、SSCOM INI 或 VOFA+ 命令组 JSON"
+            disabled={importLoading || pendingImport !== null}
+            onClick={() => void importCommands()}
+          >
+            导入
+          </button>
           <button onClick={props.onExport}>导出</button>
           <span className="side-section-count">{props.commands.length} 条</span>
         </div>
@@ -1129,6 +1168,14 @@ export const CommandsPanel = memo(function CommandsPanel(props: Props): React.JS
         </div>
       )}
 
+      {pendingImport && (
+        <QuickCommandImportDialog
+          imported={pendingImport.imported}
+          defaultGroupName={pendingImport.groupName}
+          onConfirm={confirmImport}
+          onCancel={() => setPendingImport(null)}
+        />
+      )}
       {creatingGroup && (
         <div className="modal-backdrop rule-create-backdrop">
           <div className="modal group-modal">

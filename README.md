@@ -46,6 +46,10 @@ SerialFlow 将多串口收发、可编程指令、实时曲线和固件烧录集
 
 ## 进阶使用
 
+### 从其他串口工具导入快捷指令
+
+点击“快捷指令 → 导入”，可选择 SerialFlow JSON、SSCOM 的 `sscom.ini` / `sscom51.ini`，或在 VOFA+ 命令组上导出的 `*.cmds.json`。
+
 ### 可编程指令与自动回复
 
 快捷指令支持参数占位符，并可通过 `process(data, context)` 重组报文或添加自定义校验。自动回复通过 `calculate(input, match, context)` 返回模板参数。两者均支持 JavaScript / TypeScript，由 QuickJS 沙箱执行。
