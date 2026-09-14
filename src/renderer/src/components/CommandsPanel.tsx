@@ -398,7 +398,7 @@ export const CommandsPanel = memo(function CommandsPanel(props: Props): React.JS
   const openCommandCreator = (parentId: number | null): void => {
     setEditingCommandId(null)
     setTargetParentId(parentId)
-    setDraft({ ...emptyDraft(), targetPort: props.targetPorts[0]?.path || '' })
+    setDraft(emptyDraft())
     setError('')
     setCreating(true)
     setMenu(null)
@@ -421,7 +421,7 @@ export const CommandsPanel = memo(function CommandsPanel(props: Props): React.JS
       autoSendCount: command.autoSendCount || 0,
       crcEnabled: Boolean(command.crcMode),
       crcMode: command.crcMode || 'modbus',
-      targetPort: command.targetPort || props.targetPorts[0]?.path || '',
+      targetPort: command.targetPort || '',
       parameters: command.parameters.map((parameter) => ({
         id: parameter.id,
         byteLength: parameter.byteLength || 1
@@ -528,7 +528,6 @@ export const CommandsPanel = memo(function CommandsPanel(props: Props): React.JS
       )
         return setError('附带指令间隔必须是 1~2147483647ms 的整数')
     }
-    if (!draft.targetPort) return setError('请选择目标端口')
     if (!Number.isFinite(draft.autoSendInterval) || draft.autoSendInterval < 1)
       return setError('自动发送周期不能小于 1ms')
     if (!Number.isInteger(draft.autoSendCount) || draft.autoSendCount < 0)
@@ -879,7 +878,7 @@ export const CommandsPanel = memo(function CommandsPanel(props: Props): React.JS
           <span className={`format-badge ${command.hex ? 'hex' : ''}`}>
             {command.hex ? 'HEX' : 'ASCII'}
           </span>
-          <span className="port-badge">{command.targetPort || '未指定端口'}</span>
+          <span className="port-badge">{command.targetPort || '当前串口'}</span>
           {command.crcMode && (
             <span className="crc-badge">
               {command.crcMode === 'modbus' ? 'CRC-16/MODBUS' : command.crcMode.toUpperCase()}
@@ -1255,7 +1254,7 @@ export const CommandsPanel = memo(function CommandsPanel(props: Props): React.JS
                     value={draft.targetPort}
                     onChange={(event) => setDraft({ ...draft, targetPort: event.target.value })}
                   >
-                    <option value="">选择目标端口</option>
+                    <option value="">当前串口</option>
                     {props.targetPorts.map((port) => (
                       <option key={port.path} value={port.path}>
                         {port.name}（{port.path}）
@@ -1613,7 +1612,7 @@ export const CommandsPanel = memo(function CommandsPanel(props: Props): React.JS
                                   <option key={command.id} value={command.id}>
                                     {props.groups.find((group) => group.id === command.parentId)
                                       ?.name || '顶层'}{' '}
-                                    / {command.name}（{command.targetPort || '未指定端口'}）
+                                    / {command.name}（{command.targetPort || '当前串口'}）
                                   </option>
                                 ))}
                             </select>
