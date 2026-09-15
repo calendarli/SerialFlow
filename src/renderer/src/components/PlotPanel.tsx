@@ -60,7 +60,6 @@ const plotHeightKey = 'serialflow.plotPanelHeight'
 const xWindowKey = 'serialflow.plotXWindowPoints'
 const disabledChannelsKey = 'serialflow.plotDisabledChannels'
 const pidSettingsKey = 'serialflow.plotPidSettings'
-const defaultPlotHeight = 260
 const maxPlotPoints = 100000
 const plotLeft = 28
 const plotRight = 910
@@ -105,9 +104,9 @@ function loadPlotColors(): PlotColors {
   }
 }
 
-function loadPlotHeight(): number {
+function loadPlotHeight(): number | null {
   const saved = Number(localStorage.getItem(plotHeightKey))
-  return Number.isFinite(saved) ? Math.max(160, saved) : defaultPlotHeight
+  return Number.isFinite(saved) && saved >= 160 ? saved : null
 }
 
 function loadXWindow(pointLimit: number): number {
@@ -236,10 +235,11 @@ export function PlotPanel({ store, enabledPorts, embedded = false }: Props): Rea
   }))
   const [programSaveError, setProgramSaveError] = useState('')
   const [programSaving, setProgramSaving] = useState(false)
-  const resizeStart = useRef({ y: 0, height: defaultPlotHeight, max: 530 })
+  const resizeStart = useRef({ y: 0, height: 0, max: 530 })
   const panelRef = useRef<HTMLElement | null>(null)
   const maxHeight = Math.max(160, availableHeight - 170)
-  const height = Math.min(maxHeight, cursors ? Math.max(460, requestedHeight) : requestedHeight)
+  const preferredHeight = requestedHeight ?? availableHeight / 2
+  const height = clamp(cursors ? Math.max(460, preferredHeight) : preferredHeight, 160, maxHeight)
   const plotCanvasRef = useRef<HTMLDivElement | null>(null)
   const curveCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const plotWorkerRef = useRef<Worker | null>(null)
@@ -2229,15 +2229,15 @@ export function PlotPanel({ store, enabledPorts, embedded = false }: Props): Rea
       {embedded && !collapsed && (
         <div
           className={`plot-panel-resizer ${resizing ? 'resizing' : ''}`}
-          title="拖拽调整数据交互顶部位置，双击恢复默认高度"
+          title="拖拽调整曲线与数据显示区比例，双击恢复 50%"
           onPointerDown={beginResize}
           onPointerMove={resize}
           onPointerUp={finishResize}
           onPointerCancel={finishResize}
           onDoubleClick={() => {
-            latestHeight.current = defaultPlotHeight
-            setHeight(defaultPlotHeight)
-            localStorage.setItem(plotHeightKey, String(defaultPlotHeight))
+            latestHeight.current = availableHeight / 2
+            setHeight(null)
+            localStorage.removeItem(plotHeightKey)
           }}
         >
           <i />

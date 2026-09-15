@@ -85,6 +85,11 @@ app.whenReady().then(async () => {
     })()`)
     window.setSize(1400, 1300)
     await until(async () => (await layout()).available > 950, 'tall plot container')
+    const centered = async () => {
+      const size = await layout()
+      return Math.abs(size.height - size.available / 2) < 2
+    }
+    await until(centered, 'fresh configuration defaults to 50 percent')
     const divider = await run(`(() => {
       const r=document.querySelector('.plot-panel-resizer').getBoundingClientRect();
       return {x:Math.round(r.x+r.width/2), y:Math.round(r.y+2)}
@@ -116,6 +121,13 @@ app.whenReady().then(async () => {
     await run(
       `document.querySelector('.plot-panel-resizer').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}))`
     )
+    await until(centered, 'double click resets divider to 50 percent')
+    assert.equal(await run(`localStorage.getItem('serialflow.plotPanelHeight')`), null)
+    const beforeResize = (await layout()).available
+    window.setSize(1400, 1300)
+    await until(async () => (await layout()).available > beforeResize + 50, 'resize after reset')
+    await until(centered, 'default divider stays centered after window resize')
+    window.setSize(1400, 1000)
     const send = (texts: string[]) =>
       window.webContents.send('serial:data', {
         path: 'COM991',
