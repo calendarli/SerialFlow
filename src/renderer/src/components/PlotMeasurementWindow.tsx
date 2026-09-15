@@ -91,7 +91,7 @@ export function PlotMeasurementWindow(): React.JSX.Element {
             <button onClick={() => command({ type: 'end' })}>结束测量并继续</button>
           </div>
           <small>
-            波形已冻结，接收继续。拖动曲线游标或修改 A / B
+            波形已冻结，接收继续。拖动两游标之间的区域可整体平移；拖动曲线游标或修改 A / B
             采样点，统计同步更新。统计包含两端，平均值按有效采样点计算。关闭窗口将结束测量。
           </small>
           <div className="plot-measurements-table">

@@ -241,6 +241,57 @@ app.whenReady().then(async () => {
       `document.querySelector('.plot-panel-resizer').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}))`
     )
     await until(centered, 'restore plot after label test')
+    const dragRange = async (offset: number) => {
+      const position = await run(`(() => {
+        const r=document.querySelector('.plot-measurement-selection rect').getBoundingClientRect();
+        const svg=document.querySelector('[aria-label="实时数据曲线"]').getBoundingClientRect();
+        const x=r.x+r.width/2;
+        return {x:Math.round(x),y:Math.round(r.y+r.height/2),target:Math.round(Math.max(svg.x+svg.width*.028,Math.min(svg.x+svg.width*.91,x+${offset}*svg.width*.882/4)))}
+      })()`)
+      window.webContents.sendInputEvent({ type: 'mouseMove', x: position.x, y: position.y })
+      window.webContents.sendInputEvent({
+        type: 'mouseDown',
+        x: position.x,
+        y: position.y,
+        button: 'left',
+        clickCount: 1
+      })
+      window.webContents.sendInputEvent({ type: 'mouseMove', x: position.target, y: position.y })
+      window.webContents.sendInputEvent({
+        type: 'mouseUp',
+        x: position.target,
+        y: position.y,
+        button: 'left',
+        clickCount: 1
+      })
+    }
+    const cursorPair = () =>
+      measureRun(
+        `['A','B'].map(c=>Number(document.querySelector('[aria-label="游标 '+c+' 采样点"]').value)).join(',')`
+      )
+    await input('游标 A 采样点', 1)
+    await input('游标 B 采样点', 3)
+    await dragRange(1)
+    await until(async () => (await cursorPair()) === '2,4', 'range drag moves both cursors')
+    assert.deepEqual(await row(), ['AD', '20', '40', '20', '3', '20', '40', '30', '20'])
+    await dragRange(10)
+    await until(
+      async () => (await cursorPair()) === '3,5',
+      'range stops at last sample without shrinking'
+    )
+    await input('游标 A 采样点', 4)
+    await input('游标 B 采样点', 2)
+    await dragRange(-10)
+    await until(async () => (await cursorPair()) === '3,1', 'reversed range stops at first sample')
+    await run(
+      `document.querySelector('.plot-measurement-selection rect').dispatchEvent(new KeyboardEvent('keydown',{key:'End',bubbles:true}))`
+    )
+    await until(
+      async () => (await cursorPair()) === '5,3',
+      'keyboard translation preserves reversed order'
+    )
+    await input('游标 A 采样点', 1)
+    await input('游标 B 采样点', 5)
     assert.deepEqual(await row(), ['AD', '10', '50', '40', '5', '10', '50', '30', '40'])
     await click('设置')
     await click('时间', '[aria-label="曲线 X 轴模式"] button')

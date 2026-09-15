@@ -6175,6 +6175,14 @@ footer > span:first-child {
 }
 .plot-measurement-selection rect {
   fill: #2563eb12;
+  cursor: grab;
+  touch-action: none;
+}
+.plot-measurement-selection rect:active {
+  cursor: grabbing;
+}
+.plot-measurement-selection rect:focus-visible {
+  outline: 2px solid var(--primary);
 }
 .plot-measurement-cursor {
   color: #2563eb;

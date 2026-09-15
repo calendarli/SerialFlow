@@ -1,4 +1,5 @@
 import { PlotStore } from '../plot-store'
+import { shiftPlotCursors, type PlotCursors } from '../plot-cursors'
 import { ClearActionIcon } from './ClearActionIcon'
 import { settlingTime } from '../settling-time'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
@@ -216,6 +217,7 @@ export function PlotPanel({ store, enabledPorts, embedded = false }: Props): Rea
   const [yAutoMode, setYAutoMode] = useState<'full' | 'robust'>('full')
   const [cursors, setCursors] = useState<{ a: number; b: number } | null>(null)
   const cursorDrag = useRef<'a' | 'b' | null>(null)
+  const rangeDrag = useRef<{ anchor: number; cursors: PlotCursors } | null>(null)
   const [activeCursor, setActiveCursor] = useState<'a' | 'b'>('a')
   const measurementWindow = useRef<number | null>(null)
   const [xWindowPoints, setXWindowPoints] = useState(() => loadXWindow(pointLimit))
@@ -1922,7 +1924,7 @@ export function PlotPanel({ store, enabledPorts, embedded = false }: Props): Rea
                   onPointerLeave={clearPlotHover}
                 />
                 {cursors && (
-                  <g className="plot-measurement-selection" pointerEvents="none">
+                  <g className="plot-measurement-selection">
                     <rect
                       x={clamp(
                         Math.min(indexToX(cursors.a), indexToX(cursors.b)),
@@ -1944,6 +1946,56 @@ export function PlotPanel({ store, enabledPorts, embedded = false }: Props): Rea
                           )
                       )}
                       height={plotHeight}
+                      role="slider"
+                      tabIndex={0}
+                      aria-label="整体平移双游标"
+                      aria-valuemin={1}
+                      aria-valuemax={allSamples.length - Math.abs(cursors.b - cursors.a)}
+                      aria-valuenow={Math.min(cursors.a, cursors.b) + 1}
+                      onPointerDown={(event) => {
+                        if (event.button !== 0) return
+                        event.preventDefault()
+                        event.stopPropagation()
+                        const rect = event.currentTarget.ownerSVGElement!.getBoundingClientRect()
+                        rangeDrag.current = {
+                          anchor: xToIndex(((event.clientX - rect.left) / rect.width) * 1000),
+                          cursors: { ...cursors }
+                        }
+                        event.currentTarget.setPointerCapture(event.pointerId)
+                      }}
+                      onPointerMove={(event) => {
+                        const drag = rangeDrag.current
+                        if (!drag) return
+                        const rect = event.currentTarget.ownerSVGElement!.getBoundingClientRect()
+                        const index = xToIndex(((event.clientX - rect.left) / rect.width) * 1000)
+                        setCursors(
+                          shiftPlotCursors(drag.cursors, index - drag.anchor, liveEndIndex)
+                        )
+                      }}
+                      onPointerUp={(event) => {
+                        rangeDrag.current = null
+                        if (event.currentTarget.hasPointerCapture(event.pointerId))
+                          event.currentTarget.releasePointerCapture(event.pointerId)
+                      }}
+                      onPointerCancel={() => {
+                        rangeDrag.current = null
+                      }}
+                      onLostPointerCapture={() => {
+                        rangeDrag.current = null
+                      }}
+                      onKeyDown={(event) => {
+                        if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+                        event.preventDefault()
+                        const offset =
+                          event.key === 'Home'
+                            ? -liveEndIndex
+                            : event.key === 'End'
+                              ? liveEndIndex
+                              : event.key === 'ArrowLeft'
+                                ? -1
+                                : 1
+                        setCursors(shiftPlotCursors(cursors, offset, liveEndIndex))
+                      }}
                     />
                   </g>
                 )}
