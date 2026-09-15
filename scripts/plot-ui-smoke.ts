@@ -213,6 +213,19 @@ app.whenReady().then(async () => {
       `Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='取消置顶').click()`
     )
     await until(() => !measurementWindow()!.isAlwaysOnTop(), 'native always-on-top disabled')
+    measurementWindow()!.showInactive()
+    const receiveButton = await measureRun(
+      `(() => {const r=document.querySelector('.measurement-resume').getBoundingClientRect();return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)}})()`
+    )
+    measurementWindow()!.webContents.sendInputEvent({ type: 'mouseMove', ...receiveButton })
+    await until(
+      () =>
+        measureRun(
+          `getComputedStyle(document.querySelector('.measurement-resume')).backgroundColor === 'rgb(29, 78, 216)'`
+        ),
+      'receive button stays readable on hover'
+    )
+    measurementWindow()!.webContents.sendInputEvent({ type: 'mouseMove', x: 0, y: 0 })
     await input('游标 A 采样点', 1)
     await run('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
     await new Promise((resolve) => setTimeout(resolve, 80))

@@ -8007,7 +8007,7 @@ body.plot-measurement-body {
     background 0.15s,
     border-color 0.15s;
 }
-.plot-measurement-heading button[aria-pressed='true'] {
+.plot-measurement-heading .measurement-pin[aria-pressed='true'] {
   color: var(--primary);
   border-color: #a8c7ff;
   background: #eff6ff;
@@ -8022,7 +8022,7 @@ body.plot-measurement-body {
   background: #eaf1fb;
   border-color: #a8bdd9;
 }
-.plot-measurement-heading .measurement-resume:hover {
+.plot-measurement-heading .measurement-resume:hover:not(:disabled) {
   background: #1d4ed8;
   border-color: #1d4ed8;
 }
