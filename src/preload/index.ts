@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
+import type { PlotMeasurement, PlotMeasurementCommand } from '@common/plot-measurement'
 import type { FirmwareFamily, FirmwareRequest, FirmwareState } from '@common/firmware'
 import type { UpdateState } from '@common/update'
 import type { SerialPortInfo } from '@common/serial-port'
@@ -16,6 +17,24 @@ const electron = {
 }
 
 const api = {
+  syncPlotMeasurement: (value: PlotMeasurement | null): Promise<void> =>
+    ipcRenderer.invoke('plotMeasurement:sync', value),
+  getPlotMeasurement: (): Promise<PlotMeasurement | null> =>
+    ipcRenderer.invoke('plotMeasurement:get'),
+  commandPlotMeasurement: (command: PlotMeasurementCommand): Promise<void> =>
+    ipcRenderer.invoke('plotMeasurement:command', command),
+  onPlotMeasurement: (callback: (value: PlotMeasurement) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, value: PlotMeasurement): void =>
+      callback(value)
+    ipcRenderer.on('plotMeasurement:state', listener)
+    return () => ipcRenderer.removeListener('plotMeasurement:state', listener)
+  },
+  onPlotMeasurementCommand: (callback: (command: PlotMeasurementCommand) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, command: PlotMeasurementCommand): void =>
+      callback(command)
+    ipcRenderer.on('plotMeasurement:command', listener)
+    return () => ipcRenderer.removeListener('plotMeasurement:command', listener)
+  },
   getUpdateState: (): Promise<UpdateState> => ipcRenderer.invoke('update:getState'),
   checkForUpdates: (): Promise<void> => ipcRenderer.invoke('update:check'),
   downloadUpdate: (): Promise<void> => ipcRenderer.invoke('update:download'),

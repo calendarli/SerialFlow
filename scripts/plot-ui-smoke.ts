@@ -133,16 +133,45 @@ app.whenReady().then(async () => {
         path: 'COM991',
         chunks: texts.map((text) => new Uint8Array(Buffer.from(text)))
       })
-    const click = (text: string, selector = '.plot-panel button') =>
-      run(
+    const measurementWindow = () =>
+      BrowserWindow.getAllWindows().find((candidate) =>
+        candidate.webContents.getURL().includes('plotMeasurement=true')
+      )
+    const measureRun = async (source: string) => {
+      await until(() => measurementWindow(), 'native measurement window')
+      const child = measurementWindow()!
+      await until(
+        () =>
+          child.webContents.executeJavaScript(
+            'Boolean(document.querySelector(".plot-measurements"))'
+          ),
+        'measurement data mounted'
+      )
+      return child.webContents.executeJavaScript(source)
+    }
+    const click = async (text: string, selector = '.plot-panel button') => {
+      if (text === '结束测量并继续') {
+        await measureRun(
+          `Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='结束测量并继续').click()`
+        )
+        await until(() => !measurementWindow(), 'measurement window closes')
+        return
+      }
+      return run(
         `Array.from(document.querySelectorAll(${JSON.stringify(selector)})).find(b=>b.textContent===${JSON.stringify(text)}).click()`
       )
-    const input = (label: string, value: number) =>
-      run(
+    }
+    const input = async (label: string, value: number) => {
+      await measureRun(
         `(() => { const input=document.querySelector('[aria-label="${label}"]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'${value}'); input.dispatchEvent(new Event('input',{bubbles:true})) })()`
       )
+      await until(
+        () => measureRun(`document.querySelector('[aria-label="${label}"]').value === '${value}'`),
+        'cursor edit synchronized'
+      )
+    }
     const row = () =>
-      run(
+      measureRun(
         `Array.from(document.querySelector('.plot-measurements tr[data-channel="AD"]').children).map(e=>e.textContent)`
       )
     send(['AD=10', 'AD=20', 'AD=30', 'AD=40', 'AD=50'])
@@ -151,6 +180,24 @@ app.whenReady().then(async () => {
       'five samples'
     )
     await click('双游标')
+    await measureRun('true')
+    assert.equal(await run('Boolean(document.querySelector(".plot-measurements"))'), false)
+    assert.equal(measurementWindow()!.isAlwaysOnTop(), false)
+    await measureRun(
+      `Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='启用置顶').click()`
+    )
+    await until(() => measurementWindow()!.isAlwaysOnTop(), 'native always-on-top enabled')
+    await until(
+      () =>
+        measureRun(
+          `Boolean(Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='取消置顶'))`
+        ),
+      'pin button updated'
+    )
+    await measureRun(
+      `Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='取消置顶').click()`
+    )
+    await until(() => !measurementWindow()!.isAlwaysOnTop(), 'native always-on-top disabled')
     await input('游标 A 采样点', 1)
     await run('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
     await new Promise((resolve) => setTimeout(resolve, 80))
@@ -185,7 +232,7 @@ app.whenReady().then(async () => {
       clickCount: 1
     })
     await until(
-      () => run(`document.querySelector('[aria-label="游标 A 采样点"]').value === '3'`),
+      () => measureRun(`document.querySelector('[aria-label="游标 A 采样点"]').value === '3'`),
       'cursor pointer drag'
     )
     await input('游标 A 采样点', 4)
@@ -196,7 +243,7 @@ app.whenReady().then(async () => {
     await run(
       `document.querySelector('[aria-label="测量游标 B"]').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}))`
     )
-    assert.equal((await row())[2], '50')
+    await until(async () => (await row())[2] === '50', 'keyboard edit synchronized')
     send(['AD=60'])
     await new Promise((resolve) => setTimeout(resolve, 100))
     assert.equal((await row())[2], '50', 'Measurement must remain frozen while live data arrives')
@@ -206,6 +253,14 @@ app.whenReady().then(async () => {
     fs.writeFileSync(
       path.join(root, '.tmp/ui-smoke/plot-cursors.png'),
       (await window.webContents.capturePage()).toPNG()
+    )
+    measurementWindow()!.showInactive()
+    await measureRun(
+      'new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))'
+    )
+    fs.writeFileSync(
+      path.join(root, '.tmp/ui-smoke/plot-measurement-window.png'),
+      (await measurementWindow()!.webContents.capturePage()).toPNG()
     )
     await click('结束测量并继续')
     await until(
@@ -236,12 +291,14 @@ app.whenReady().then(async () => {
     await input('游标 A 采样点', 1)
     await input('游标 B 采样点', 3)
     assert.deepEqual(
-      await run(
+      await measureRun(
         `Array.from(document.querySelector('.plot-measurements tr[data-channel="计算·压力 (gf)"]').children).map(e=>e.textContent)`
       ),
       ['计算·压力 (gf)', '20', '60', '40', '3', '20', '60', '40', '40']
     )
-    await click('结束测量并继续')
+    measurementWindow()!.close()
+    await until(() => !measurementWindow(), 'native close button closes measurement')
+    await until(() => run('!document.querySelector(".cursor-a")'), 'native close ends measurement')
     await click('设置')
     await click('计算通道', '.plot-options-popover button')
     await click('普通模式', '.plot-program-editor button')

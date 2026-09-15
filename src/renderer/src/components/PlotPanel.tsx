@@ -234,12 +234,13 @@ export function PlotPanel({ store, enabledPorts, embedded = false }: Props): Rea
     source: store.program.source || defaultPlotProgram
   }))
   const [programSaveError, setProgramSaveError] = useState('')
+  const [measurementError, setMeasurementError] = useState('')
   const [programSaving, setProgramSaving] = useState(false)
   const resizeStart = useRef({ y: 0, height: 0, max: 530 })
   const panelRef = useRef<HTMLElement | null>(null)
   const maxHeight = Math.max(160, availableHeight - 170)
   const preferredHeight = requestedHeight ?? availableHeight / 2
-  const height = clamp(cursors ? Math.max(460, preferredHeight) : preferredHeight, 160, maxHeight)
+  const height = clamp(preferredHeight, 160, maxHeight)
   const plotCanvasRef = useRef<HTMLDivElement | null>(null)
   const curveCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const plotWorkerRef = useRef<Worker | null>(null)
@@ -436,11 +437,22 @@ export function PlotPanel({ store, enabledPorts, embedded = false }: Props): Rea
           })
         }
       : null
+  const endMeasurement = useCallback((): void => {
+    setCursors(null)
+    setPaused(false)
+    setFrozenSamples(null)
+    if (measurementWindow.current !== null) {
+      setXWindowPoints(measurementWindow.current)
+      measurementWindow.current = null
+    }
+    setViewEndIndex(null)
+  }, [])
   const beginMeasurement = (): void => {
     if (cursors) {
-      setCursors(null)
+      endMeasurement()
       return
     }
+    setMeasurementError('')
     if (!visibleCount) return
     measurementWindow.current = xWindowPoints
     if (visibleCount < xWindowPoints) setXWindowPoints(Math.max(1, visibleCount))
@@ -455,13 +467,68 @@ export function PlotPanel({ store, enabledPorts, embedded = false }: Props): Rea
     setHover(null)
     setActiveCursor('a')
   }
-  const changeCursor = (which: 'a' | 'b', index: number): void => {
-    if (!Number.isFinite(index)) return
-    const next = clamp(Math.round(index), 0, liveEndIndex)
-    setCursors((current) => (current ? { ...current, [which]: next } : null))
-    if (next < startIndex || next > endIndex)
-      setViewEndIndex(Math.min(liveEndIndex, next + Math.floor(xWindowPoints / 2)))
-  }
+  const changeCursor = useCallback(
+    (which: 'a' | 'b', index: number): void => {
+      if (!Number.isFinite(index)) return
+      const next = clamp(Math.round(index), 0, liveEndIndex)
+      setCursors((current) => (current ? { ...current, [which]: next } : null))
+      if (next < startIndex || next > endIndex)
+        setViewEndIndex(Math.min(liveEndIndex, next + Math.floor(xWindowPoints / 2)))
+    },
+    [liveEndIndex, startIndex, endIndex, xWindowPoints]
+  )
+  useEffect(
+    () =>
+      window.api.onPlotMeasurementCommand((command) => {
+        if (command.type === 'end') endMeasurement()
+        else if (command.type === 'select') setActiveCursor(command.cursor)
+        else changeCursor(command.cursor, command.index - 1)
+      }),
+    [endMeasurement, changeCursor]
+  )
+  useEffect(() => {
+    const show = (value: number | null): string =>
+      value === null || !Number.isFinite(value) ? '—' : formatAxisValue(value)
+    void window.api
+      .syncPlotMeasurement(
+        cursors && measurement
+          ? {
+              a: cursors.a + 1,
+              b: cursors.b + 1,
+              total: allSamples.length,
+              active: activeCursor,
+              deltaTime: formatAxisValue(
+                (allSamples.at(cursors.b)?.timestamp ?? 0) -
+                  (allSamples.at(cursors.a)?.timestamp ?? 0)
+              ),
+              rows: activeChannelNames.map((name) => {
+                const stats = measurement[name]
+                return [
+                  name,
+                  show(stats.a),
+                  show(stats.b),
+                  show(stats.a !== null && stats.b !== null ? stats.b - stats.a : null),
+                  String(stats.count),
+                  show(stats.count ? stats.min : null),
+                  show(stats.count ? stats.max : null),
+                  show(stats.count ? stats.mean : null),
+                  show(stats.count ? stats.peakToPeak : null)
+                ]
+              })
+            }
+          : null
+      )
+      .catch((error) => {
+        setMeasurementError(String(error))
+        endMeasurement()
+      })
+  }, [cursors, measurement, activeCursor, activeChannelNames, allSamples, endMeasurement])
+  useEffect(
+    () => () => {
+      void window.api.syncPlotMeasurement(null).catch(() => {})
+    },
+    []
+  )
   const moveMeasurement = (event: React.PointerEvent<SVGElement>, which: 'a' | 'b'): void => {
     const rect = event.currentTarget.ownerSVGElement?.getBoundingClientRect()
     if (rect) changeCursor(which, xToIndex(((event.clientX - rect.left) / rect.width) * 1000))
@@ -1105,6 +1172,7 @@ export function PlotPanel({ store, enabledPorts, embedded = false }: Props): Rea
       <header className="plot-toolbar plot-toolbar-compact">
         <div className="plot-heading">
           <strong>实时曲线</strong>
+          {measurementError && <span role="alert">{measurementError}</span>}
           <span>
             {allSamples.length.toLocaleString()} 个采样点 · {series.length} 个通道 ·{' '}
             {xWindowPoints.toLocaleString()} 点视窗 ·{' '}
@@ -2134,97 +2202,6 @@ export function PlotPanel({ store, enabledPorts, embedded = false }: Props): Rea
             />
           </div>
         </div>
-      )}
-      {!collapsed && cursors && measurement && (
-        <section className="plot-measurements" aria-label="双游标区间统计">
-          <div className="plot-measurements-controls">
-            <strong>区间测量</strong>
-            {(['a', 'b'] as const).map((which) => (
-              <label key={which}>
-                <button
-                  aria-pressed={activeCursor === which}
-                  onClick={() => setActiveCursor(which)}
-                >
-                  {which.toUpperCase()}
-                </button>
-                <input
-                  type="number"
-                  aria-label={`游标 ${which.toUpperCase()} 采样点`}
-                  min={1}
-                  max={allSamples.length}
-                  value={cursors[which] + 1}
-                  onChange={(event) => changeCursor(which, Number(event.target.value) - 1)}
-                />
-              </label>
-            ))}
-            <span>
-              Δt（B−A）
-              {formatAxisValue(
-                (allSamples.at(cursors.b)?.timestamp ?? 0) -
-                  (allSamples.at(cursors.a)?.timestamp ?? 0)
-              )}{' '}
-              ms
-            </span>
-            <span>间隔 {Math.abs(cursors.b - cursors.a)} 点</span>
-            <button
-              onClick={() => {
-                setCursors(null)
-                setPaused(false)
-                setFrozenSamples(null)
-                if (measurementWindow.current !== null) {
-                  setXWindowPoints(measurementWindow.current)
-                  measurementWindow.current = null
-                }
-                setViewEndIndex(null)
-              }}
-            >
-              结束测量并继续
-            </button>
-          </div>
-          <small>
-            波形已冻结，接收继续。拖动游标或选择 A / B
-            后点击曲线；统计包含两端，平均值按有效采样点计算。
-          </small>
-          <div className="plot-measurements-table">
-            <table>
-              <thead>
-                <tr>
-                  <th>通道</th>
-                  <th>A</th>
-                  <th>B</th>
-                  <th>Δ值（B−A）</th>
-                  <th>有效点数</th>
-                  <th>最小值</th>
-                  <th>最大值</th>
-                  <th>平均值</th>
-                  <th>峰峰值</th>
-                </tr>
-              </thead>
-              <tbody>
-                {activeChannelNames.map((name) => {
-                  const stats = measurement[name]
-                  const show = (value: number | null): string =>
-                    value === null || !Number.isFinite(value) ? '—' : formatAxisValue(value)
-                  return (
-                    <tr key={name} data-channel={name}>
-                      <th>{name}</th>
-                      <td>{show(stats.a)}</td>
-                      <td>{show(stats.b)}</td>
-                      <td>
-                        {show(stats.a !== null && stats.b !== null ? stats.b - stats.a : null)}
-                      </td>
-                      <td>{stats.count}</td>
-                      <td>{show(stats.count ? stats.min : null)}</td>
-                      <td>{show(stats.count ? stats.max : null)}</td>
-                      <td>{show(stats.count ? stats.mean : null)}</td>
-                      <td>{show(stats.count ? stats.peakToPeak : null)}</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
       )}
       {embedded && !collapsed && (
         <div

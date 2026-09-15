@@ -1,4 +1,5 @@
 import { writeSerialData } from './serial-write'
+import { registerPlotMeasurementWindow } from './plot-measurement-window'
 import { app, shell, BrowserWindow, dialog, ipcMain } from 'electron'
 import { execFile } from 'child_process'
 import { existsSync, mkdirSync } from 'fs'
@@ -338,6 +339,7 @@ async function openManagedPort(options: PortOptions): Promise<boolean> {
 }
 
 function registerSerialHandlers(): void {
+  registerPlotMeasurementWindow(() => mainWindow)
   firmwareManager = new FirmwareManager({
     resources: app.isPackaged ? process.resourcesPath : join(app.getAppPath(), 'resources'),
     temp: app.getPath('temp'),

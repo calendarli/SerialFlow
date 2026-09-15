@@ -1,4 +1,5 @@
 import type { SerialPortInfo } from '@common/serial-port'
+import type { PlotMeasurement, PlotMeasurementCommand } from '@common/plot-measurement'
 import type { UpdateState } from '@common/update'
 import type {
   FirmwareFamily,
@@ -44,6 +45,11 @@ declare global {
       }
     }
     api: {
+      syncPlotMeasurement(value: PlotMeasurement | null): Promise<void>
+      getPlotMeasurement(): Promise<PlotMeasurement | null>
+      commandPlotMeasurement(command: PlotMeasurementCommand): Promise<void>
+      onPlotMeasurement(callback: (value: PlotMeasurement) => void): () => void
+      onPlotMeasurementCommand(callback: (command: PlotMeasurementCommand) => void): () => void
       getUpdateState(): Promise<UpdateState>
       checkForUpdates(): Promise<void>
       downloadUpdate(): Promise<void>
