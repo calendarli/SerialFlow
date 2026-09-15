@@ -35,6 +35,11 @@ bun run postinstall
 
 ## 项目结构
 
+数据窗口的字段解析位于 `src/renderer/src/data-window-parser.ts`，编程换算位于
+`src/renderer/src/data-window-program.ts`，复用 QuickJS Worker 的内存和执行时间限制。
+修改换算行为时运行 `bun test tests/data-window-parser.test.ts tests/data-window-program.test.ts`，
+并在生产构建后运行 `bun run test:ui:serial`。处理队列仅保留最新待处理值；配置变更、断线和关闭窗口时须清理运行器，避免旧结果覆盖新配置。
+
 ```text
 SerialFlow/
 ├── src/

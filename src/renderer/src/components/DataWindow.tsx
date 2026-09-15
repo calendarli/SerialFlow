@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { WindowPinButton } from './WindowPinButton'
+import { ProgramCodeEditor } from './ProgramCodeEditor'
+import {
+  DataProgramRuntime,
+  dataProgramInput,
+  defaultDataProgram,
+  type DataProgramValue
+} from '../data-window-program'
 import {
   formatDataValue,
   compileDataPattern,
@@ -18,6 +25,10 @@ export function DataWindow({ id }: { id: string }): React.JSX.Element {
   const [editing, setEditing] = useState(true)
   const [ports, setPorts] = useState<string[]>([])
   const [error, setError] = useState('')
+  const [processed, setProcessed] = useState<{
+    values?: DataProgramValue[]
+    error?: string
+  } | null>(null)
   const [result, setResult] = useState<{ match: DataMatch; count: number; time: string } | null>(
     null
   )
@@ -54,6 +65,32 @@ export function DataWindow({ id }: { id: string }): React.JSX.Element {
   useEffect(() => {
     if (!compiled.pattern) return
     const parser = new DataWindowParser(compiled.pattern)
+    const runtime = new DataProgramRuntime()
+    let active = true
+    let revision = 0
+    let total = 0
+    let busy = false
+    let pending: { match: DataMatch; revision: number; count: number; time: string } | null = null
+    const processLatest = async (): Promise<void> => {
+      if (busy || !pending || !active) return
+      const job = pending
+      pending = null
+      busy = true
+      try {
+        const values = await runtime.run(
+          config.program ?? defaultDataProgram,
+          dataProgramInput(job.match, config)
+        )
+        if (active && revision === job.revision) setProcessed({ values })
+      } catch (cause) {
+        if (active && revision === job.revision)
+          setProcessed({ error: cause instanceof Error ? cause.message : String(cause) })
+      } finally {
+        if (active && revision === job.revision) setResult(job)
+        busy = false
+        if (active) void processLatest()
+      }
+    }
     const offData = window.api.onData(({ path, chunks }) => {
       if (!config.port || path !== config.port) return
       let count = 0
@@ -66,16 +103,30 @@ export function DataWindow({ id }: { id: string }): React.JSX.Element {
       if (latest) {
         const match = latest
         const time = new Date().toLocaleTimeString('zh-CN', { hour12: false })
-        setResult((current) => ({ match, count: (current?.count || 0) + count, time }))
+        total += count
+        if (config.programming) {
+          pending = { match, revision, count: total, time }
+          void processLatest()
+        } else {
+          setResult({ match, count: total, time })
+        }
       }
     })
     const offStatus = window.api.onStatus(({ path }) => {
       if (path === config.port) {
         parser.clear()
+        revision++
+        total = 0
+        pending = null
+        runtime.dispose()
+        setProcessed(null)
         setResult(null)
       }
     })
     return () => {
+      active = false
+      pending = null
+      runtime.dispose()
       offData()
       offStatus()
     }
@@ -93,6 +144,8 @@ export function DataWindow({ id }: { id: string }): React.JSX.Element {
       const pattern = compileDataPattern(draft.template)
       if (!draft.port.trim()) throw new Error('请选择或输入接收串口')
       if (!draft.name.trim()) throw new Error('请输入窗口名称')
+      if (draft.programming && !(draft.program ?? defaultDataProgram).trim())
+        throw new Error('请输入数据处理程序')
       const next = {
         ...draft,
         name: draft.name.trim(),
@@ -108,6 +161,7 @@ export function DataWindow({ id }: { id: string }): React.JSX.Element {
       setConfig(next)
       setDraft(next)
       setResult(null)
+      setProcessed(null)
       setError('')
       setEditing(false)
     } catch (cause) {
@@ -209,6 +263,50 @@ export function DataWindow({ id }: { id: string }): React.JSX.Element {
             显示负号及绝对值，原始字节可查看完整匹配帧。小数位仅作用于 DEC：1 位除以 10，2 位除以
             100。
           </small>
+          <div className="data-processing-mode">
+            <span>数据处理</span>
+            <div className="mini-segment" role="group" aria-label="数据处理模式">
+              <button
+                type="button"
+                className={!draft.programming ? 'active' : ''}
+                aria-pressed={!draft.programming}
+                onClick={() => setDraft({ ...draft, programming: false })}
+              >
+                普通模式
+              </button>
+              <button
+                type="button"
+                className={draft.programming ? 'active' : ''}
+                aria-pressed={!!draft.programming}
+                onClick={() => setDraft({ ...draft, programming: true })}
+              >
+                编程模式
+              </button>
+            </div>
+          </div>
+          {draft.programming && (
+            <>
+              <label>
+                换算程序（JavaScript / TypeScript）
+                <ProgramCodeEditor
+                  aria-label="数据换算程序"
+                  rows={12}
+                  spellCheck={false}
+                  value={draft.program ?? defaultDataProgram}
+                  onChange={(event) => setDraft({ ...draft, program: event.target.value })}
+                />
+              </label>
+              <small>
+                {
+                  'process(data) 中通过 data["字段名"] 读取按符号和 DEC 小数位解析的数值。返回 [{ name: "压力", value: 数值, unit: "gf", decimals: 2 }]，可返回多个结果。'
+                }
+                示例标定值须替换为实际测量值。同步执行，不支持异步或访问串口、文件。
+              </small>
+              <small>
+                处理最新匹配值，高频时合并待处理数据，不适用于逐帧累计。超过安全整数范围的字段会报错。
+              </small>
+            </>
+          )}
           <button className="primary" onClick={save}>
             保存并应用
           </button>
@@ -222,6 +320,25 @@ export function DataWindow({ id }: { id: string }): React.JSX.Element {
       <section className="data-window-values">
         {result ? (
           <>
+            {config.programming && (
+              <>
+                {!processed && <p>正在换算最新数据…</p>}
+                {processed?.error && (
+                  <p className="data-window-error" role="alert">
+                    换算失败：{processed.error}
+                  </p>
+                )}
+                {processed?.values?.map((value, index) => (
+                  <article key={index}>
+                    <small>{value.name} · 换算结果</small>
+                    <output>
+                      {value.value.toFixed(value.decimals)}
+                      {value.unit && ` ${value.unit}`}
+                    </output>
+                  </article>
+                ))}
+              </>
+            )}
             {result.match.fields.map((field) => {
               const format = normalizeDataFieldFormat(config.fieldFormats[field.name])
               const value = formatDataValue(field.hex, format.signed, format.decimals)

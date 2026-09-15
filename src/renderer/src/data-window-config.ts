@@ -4,6 +4,8 @@ export type DataWindowConfig = {
   port: string
   template: string
   fieldFormats: Record<string, DataFieldFormat>
+  programming?: boolean
+  program?: string
 }
 export function normalizeDataFieldFormat(value: unknown): DataFieldFormat {
   const item = value as Partial<DataFieldFormat> | null
@@ -33,6 +35,8 @@ export function readDataWindowConfig(id: string): DataWindowConfig {
         name: saved.name,
         port: saved.port,
         template: saved.template,
+        programming: saved.programming === true,
+        program: typeof saved.program === 'string' ? saved.program : undefined,
         fieldFormats: Object.fromEntries(
           Object.entries(
             saved.fieldFormats && typeof saved.fieldFormats === 'object' ? saved.fieldFormats : {}

@@ -7165,7 +7165,9 @@ footer > span:first-child {
   box-shadow: 0 0 0 2px #2563eb18;
 }
 
-:is(.command-editor-modal, .reply-editor-modal) .program-code-editor :is(pre, textarea) {
+:is(.command-editor-modal, .reply-editor-modal, .data-window-editor)
+  .program-code-editor
+  :is(pre, textarea) {
   box-sizing: border-box;
   display: block;
   min-height: 0;
@@ -7214,7 +7216,7 @@ footer > span:first-child {
   font-variant-ligatures: inherit;
 }
 
-:is(.command-editor-modal, .reply-editor-modal) .program-code-editor textarea {
+:is(.command-editor-modal, .reply-editor-modal, .data-window-editor) .program-code-editor textarea {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -7253,7 +7255,9 @@ footer > span:first-child {
   .program-code-editor pre {
     visibility: hidden;
   }
-  :is(.command-editor-modal, .reply-editor-modal) .program-code-editor textarea {
+  :is(.command-editor-modal, .reply-editor-modal, .data-window-editor)
+    .program-code-editor
+    textarea {
     color: CanvasText;
     -webkit-text-fill-color: CanvasText;
     caret-color: CanvasText;
@@ -7538,6 +7542,26 @@ body.data-window-body {
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--surface-soft);
+}
+
+.data-processing-mode {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.data-window .mini-segment button {
+  padding: 5px 9px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+
+.data-window .mini-segment button.active {
+  background: #fff;
+  color: var(--primary);
+  box-shadow: 0 1px 3px #1e293b12;
 }
 .data-field-format > strong {
   grid-column: 1 / -1;

@@ -15,8 +15,35 @@ export default function Manual(): React.JSX.Element {
           <a href="#match">帧与位提取</a>
           <a href="#return">返回参数</a>
           <a href="#examples">完整示例</a>
+          <a href="#data-window">数据窗口换算</a>
         </nav>
 
+        <section id="data-window">
+          <h2>数据窗口：AD 换算为 gf</h2>
+          <p>
+            数据窗口选择“编程模式”后使用 process(data)，与自动回复的 calculate 接口独立。data
+            的键是模板字段名，值已应用有符号和 DEC 小数位设置；AD 标定一般将 DEC 小数位设为 0。
+          </p>
+          <pre>
+            <code>{`function process(data) {
+  const zero = 1000
+  const calibrationAD = 5000
+  const calibrationGf = 500
+  return [{
+    name: '压力',
+    value: (data['数据'] - zero) * calibrationGf / (calibrationAD - zero),
+    unit: 'gf',
+    decimals: 2
+  }]
+}`}</code>
+          </pre>
+          <p>
+            上述数值仅作示例，请替换为实际空载值及砝码标定值。返回 1～64 项数组，每项包含
+            name、有限数值 value，可选 unit 和 decimals（0～20，默认 2）。支持同步 JavaScript /
+            TypeScript、Math 和多个字段运算。高频数据只保留最新待处理值，不适合逐帧累计。运行在隔离
+            Worker 中，限制执行时间和内存；不能访问串口或文件。超过安全整数范围的输入会报错。
+          </p>
+        </section>
         <section id="structure">
           <h2>1. 基本结构</h2>
           <p>

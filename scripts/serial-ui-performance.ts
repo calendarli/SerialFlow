@@ -100,6 +100,84 @@ app.whenReady().then(async () => {
       'Every received frame must be counted'
     )
     assert(errors.length === 0, errors.join('\n'))
+    await run(`localStorage.setItem('serialflow.dataWindow.program-qa', JSON.stringify({
+      name: '压力换算测试', port: 'COM991', template: 'AA 02 {数据:4} BB', fieldFormats: {}, programming: true
+    })); window.api.openDataWindow('program-qa')`)
+    const dataWindow = BrowserWindow.getAllWindows().find((item) => item !== window)!
+    const dataRun = (source: string) => dataWindow.webContents.executeJavaScript(source)
+    await until(() => dataRun('Boolean(document.querySelector("[aria-label=数据换算程序]"))'))
+    const editorStyle = await dataRun(`(() => {
+      const input = document.querySelector('[aria-label=数据换算程序]');
+      const pre = document.querySelector('.program-code-editor pre');
+      const a = getComputedStyle(input), b = getComputedStyle(pre);
+      return { color: a.webkitTextFillColor, font: a.font, preFont: b.font, padding: a.padding, prePadding: b.padding, resize: a.resize };
+    })()`)
+    assert.equal(
+      editorStyle.color,
+      'rgba(0, 0, 0, 0)',
+      'Editor input must not duplicate highlighted text'
+    )
+    assert.equal(editorStyle.font, editorStyle.preFont)
+    assert.equal(editorStyle.padding, editorStyle.prePadding)
+    assert.equal(editorStyle.resize, 'none')
+    await dataRun(
+      `Array.from(document.querySelectorAll('[aria-label="数据处理模式"] button')).find(b => b.textContent === '普通模式').click()`
+    )
+    assert.equal(
+      await dataRun('Boolean(document.querySelector("[aria-label=数据换算程序]"))'),
+      false
+    )
+    await dataRun(
+      `Array.from(document.querySelectorAll('[aria-label="数据处理模式"] button')).find(b => b.textContent === '编程模式').click()`
+    )
+    const sendAD = (ad: number) =>
+      dataWindow.webContents.send('serial:data', {
+        path: 'COM991',
+        chunks: [new Uint8Array([0xaa, 2, 0, 0, ad >> 8, ad & 255, 0xbb])]
+      })
+    sendAD(3000)
+    await until(() => dataRun('document.body.textContent.includes("250.00 gf")'))
+    dataWindow.setSize(820, 900)
+    await dataRun(
+      `document.querySelector('.program-code-editor').style.height = '180px'; document.querySelector('.data-processing-mode').scrollIntoView()`
+    )
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    await dataRun(
+      `document.querySelector('[aria-label=数据换算程序]').scrollTop = 25; document.querySelector('[aria-label=数据换算程序]').dispatchEvent(new Event('scroll'))`
+    )
+    const scrollAlignment = await dataRun(`(() => {
+      const input = document.querySelector('[aria-label=数据换算程序]');
+      const viewport = document.querySelector('.program-code-editor pre');
+      const transform = new DOMMatrixReadOnly(getComputedStyle(viewport).transform);
+      return { actual: transform.m42, expected: -input.scrollTop };
+    })()`)
+    assert.equal(scrollAlignment.actual, scrollAlignment.expected)
+    assert(scrollAlignment.expected < 0, 'Editor must actually scroll for alignment coverage')
+    fs.writeFileSync(
+      path.join(root, '.tmp/ui-smoke/data-window-program.png'),
+      (await dataWindow.webContents.capturePage()).toPNG()
+    )
+    await dataRun(
+      `Array.from(document.querySelectorAll('button')).find(b => b.textContent === '保存并应用').click()`
+    )
+    dataWindow.webContents.reload()
+    await until(() => dataRun('Boolean(document.querySelector("[aria-label=数据换算程序]"))'))
+    sendAD(5000)
+    await until(() => dataRun('document.body.textContent.includes("500.00 gf")'))
+    await dataRun(`(() => {
+      const input = document.querySelector('[aria-label=数据换算程序]');
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(input, 'function process() { while (true) {} }');
+      input.dispatchEvent(new Event('input', {bubbles:true}));
+    })()`)
+    await dataRun(
+      `Array.from(document.querySelectorAll('button')).find(b => b.textContent === '保存并应用').click()`
+    )
+    sendAD(3000)
+    await until(() => dataRun('document.body.textContent.includes("换算失败")'))
+    dataWindow.webContents.send('serial:status', { path: 'COM991', open: false })
+    await until(() => dataRun('document.body.textContent.includes("等待匹配数据")'))
+    console.log('Data window: AD to gf, saved configuration, script timeout and disconnect passed')
+    dataWindow.destroy()
     clearTimeout(deadline)
     app.exit(0)
   } catch (error) {
