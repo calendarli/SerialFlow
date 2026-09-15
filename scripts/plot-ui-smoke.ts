@@ -187,6 +187,10 @@ app.whenReady().then(async () => {
     )
     await click('双游标')
     await measureRun('true')
+    assert(
+      await run(`!document.querySelector('.plot-heading').textContent.includes('已冻结')`),
+      'opening measurement keeps the plot live'
+    )
     assert.deepEqual(
       measurementWindow()!.getSize(),
       [680, 656],
@@ -361,8 +365,11 @@ app.whenReady().then(async () => {
     assert(measurementWindow(), 'pausing keeps the measurement window open')
     await click('继续接收')
     send(['AD=60'])
-    await new Promise((resolve) => setTimeout(resolve, 100))
-    assert.equal((await row())[2], '50', 'Measurement must remain frozen while live data arrives')
+    await until(
+      async () => (await row())[2] === '60',
+      'measurement statistics follow arriving data'
+    )
+    assert.equal(await cursorPair(), '5,6', 'live cursors advance together with the waveform')
     await input('游标 A 采样点', 1)
     await run('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
     await new Promise((resolve) => setTimeout(resolve, 80))
@@ -451,6 +458,38 @@ app.whenReady().then(async () => {
       await input('游标 A 采样点', 1 + i * 1000)
       latencies.push(Date.now() - start)
     }
+    const rollingValue = () =>
+      measureRun(
+        `document.querySelector('.plot-measurements tbody tr td:nth-child(3)').textContent`
+      )
+    const beforeRolling = await rollingValue()
+    const beforePair = await cursorPair()
+    send(Array.from({ length: 10 }, () => '9999,9999,9999,9999,9999,9999,9999,9999'))
+    await until(
+      async () => (await rollingValue()) !== beforeRolling,
+      'statistics update after ring buffer rollover'
+    )
+    assert.equal(
+      await cursorPair(),
+      beforePair,
+      'cursor interval stays fixed relative to a full rolling buffer'
+    )
+    await click('暂停接收')
+    const pausedValue = await rollingValue()
+    send(['8888,8888,8888,8888,8888,8888,8888,8888'])
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    assert.equal(
+      await rollingValue(),
+      pausedValue,
+      'receive pause holds live measurement statistics'
+    )
+    await run(
+      `Array.from(document.querySelectorAll('.receiver button')).find(b=>b.textContent.includes('暂停接收')).click()`
+    )
+    await until(
+      () => measureRun(`document.querySelector('.measurement-resume').textContent === '暂停接收'`),
+      'main window resume synchronizes back to measurement'
+    )
     const measurementView = measurementWindow()!
     measurementView.showInactive()
     measurementView.setSize(1000, 540)

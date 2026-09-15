@@ -1,5 +1,10 @@
 import { PlotStore } from '../plot-store'
-import { shiftPlotCursors, type PlotCursors } from '../plot-cursors'
+import {
+  shiftPlotCursors,
+  followPlotCursors,
+  type AnchoredPlotCursors,
+  type PlotCursors
+} from '../plot-cursors'
 import { ClearActionIcon } from './ClearActionIcon'
 import { settlingTime } from '../settling-time'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
@@ -227,7 +232,7 @@ export function PlotPanel({
   const [xMode, setXMode] = useState<'time' | 'points'>('points')
   const [lineMode, setLineMode] = useState<'linear' | 'step'>('linear')
   const [yAutoMode, setYAutoMode] = useState<'full' | 'robust'>('full')
-  const [cursors, setCursors] = useState<{ a: number; b: number } | null>(null)
+  const [cursorSelection, setCursorSelection] = useState<AnchoredPlotCursors | null>(null)
   const cursorDrag = useRef<'a' | 'b' | null>(null)
   const rangeDrag = useRef<{ anchor: number; cursors: PlotCursors } | null>(null)
   const [activeCursor, setActiveCursor] = useState<'a' | 'b'>('a')
@@ -298,7 +303,7 @@ export function PlotPanel({
     store.configure(enabledPorts, pointLimit)
   }, [store, enabledPorts, pointLimit])
   useEffect(() => {
-    setCursors(null)
+    setCursorSelection(null)
     setPaused(false)
     setFrozenSamples(null)
     setViewEndIndex(null)
@@ -307,6 +312,22 @@ export function PlotPanel({
   const allSamples = paused && frozenSamples ? frozenSamples : store.samples
   const liveEndIndex = Math.max(0, allSamples.length - 1)
   const endIndex = clamp(viewEndIndex ?? liveEndIndex, 0, liveEndIndex)
+  const cursors = useMemo(
+    () => followPlotCursors(cursorSelection, endIndex, allSamples.length - 1),
+    [cursorSelection, endIndex, allSamples.length]
+  )
+  const setCursors = useCallback(
+    (value: React.SetStateAction<PlotCursors | null>): void => {
+      setCursorSelection((current) => {
+        const next =
+          typeof value === 'function'
+            ? value(followPlotCursors(current, endIndex, liveEndIndex))
+            : value
+        return next ? { ...next, endIndex } : null
+      })
+    },
+    [endIndex, liveEndIndex]
+  )
   const viewStartIndex = endIndex - xWindowPoints + 1
   const startIndex = Math.max(0, viewStartIndex)
   const visibleCount = Math.min(allSamples.length, Math.max(0, endIndex - startIndex + 1))
@@ -432,10 +453,11 @@ export function PlotPanel({
     ]
   )
 
-  const measurement = useMemo(
-    () => (cursors ? measurePlot(allSamples, cursors.a, cursors.b, activeChannelNames) : null),
-    [allSamples, cursors, activeChannelNames]
-  )
+  const measurement = useMemo(() => {
+    // The ring also changes in place once it reaches capacity.
+    void revision
+    return cursors ? measurePlot(allSamples, cursors.a, cursors.b, activeChannelNames) : null
+  }, [allSamples, cursors, activeChannelNames, revision])
   const hoverIndex = hoverState ? xToIndex(hoverState.x) : 0
   const hover =
     hoverState && allSamples.length
@@ -452,7 +474,7 @@ export function PlotPanel({
         }
       : null
   const endMeasurement = useCallback((): void => {
-    setCursors(null)
+    setCursorSelection(null)
     setPaused(false)
     setFrozenSamples(null)
     if (measurementWindow.current !== null) {
@@ -470,10 +492,8 @@ export function PlotPanel({
     if (!visibleCount) return
     measurementWindow.current = xWindowPoints
     if (visibleCount < xWindowPoints) setXWindowPoints(Math.max(1, visibleCount))
-    if (!paused) {
-      setFrozenSamples(store.freeze())
-      setPaused(true)
-    }
+    setFrozenSamples(null)
+    setPaused(false)
     setCursors({
       a: startIndex + Math.floor((endIndex - startIndex) / 3),
       b: startIndex + Math.ceil(((endIndex - startIndex) * 2) / 3)
@@ -485,9 +505,15 @@ export function PlotPanel({
     (which: 'a' | 'b', index: number): void => {
       if (!Number.isFinite(index)) return
       const next = clamp(Math.round(index), 0, liveEndIndex)
-      setCursors((current) => (current ? { ...current, [which]: next } : null))
-      if (next < startIndex || next > endIndex)
-        setViewEndIndex(Math.min(liveEndIndex, next + Math.floor(xWindowPoints / 2)))
+      const targetEnd =
+        next < startIndex || next > endIndex
+          ? Math.min(liveEndIndex, next + Math.floor(xWindowPoints / 2))
+          : endIndex
+      setCursorSelection((current) => {
+        const latest = followPlotCursors(current, endIndex, liveEndIndex)
+        return latest ? { ...latest, [which]: next, endIndex: targetEnd } : null
+      })
+      if (targetEnd !== endIndex) setViewEndIndex(targetEnd)
     },
     [liveEndIndex, startIndex, endIndex, xWindowPoints]
   )
@@ -1200,7 +1226,13 @@ export function PlotPanel({
           <span>
             {allSamples.length.toLocaleString()} 个采样点 · {series.length} 个通道 ·{' '}
             {xWindowPoints.toLocaleString()} 点视窗 ·{' '}
-            {paused ? '已冻结' : viewEndIndex === null ? '实时' : '历史'}
+            {receivePaused
+              ? '接收已暂停'
+              : paused
+                ? '已冻结'
+                : viewEndIndex === null
+                  ? '实时'
+                  : '历史'}
             {store.programError && (
               <span role="status" title={store.programError}>
                 {' '}
@@ -1215,7 +1247,7 @@ export function PlotPanel({
               aria-pressed={!!cursors}
               className={cursors ? 'active' : ''}
               disabled={!allSamples.length}
-              title="冻结当前波形，拖动 A / B 测量并统计区间"
+              title="打开实时区间测量，A / B 跟随曲线滚动；再次点击结束测量"
               onClick={beginMeasurement}
             >
               双游标
@@ -1233,9 +1265,21 @@ export function PlotPanel({
             </button>
             <button
               className="plot-pause-button"
-              aria-pressed={paused}
-              title={paused ? '继续绘图' : '暂停绘图'}
+              aria-pressed={receivePaused || paused}
+              title={
+                cursors || receivePaused
+                  ? receivePaused
+                    ? '继续接收'
+                    : '暂停接收'
+                  : paused
+                    ? '继续绘图'
+                    : '暂停绘图'
+              }
               onClick={() => {
+                if (cursors || receivePaused) {
+                  onReceivePausedChange(!receivePaused)
+                  return
+                }
                 if (!paused) setFrozenSamples(store.freeze())
                 else {
                   if (measurementWindow.current !== null) {
@@ -1248,7 +1292,7 @@ export function PlotPanel({
                 setPaused((value) => !value)
               }}
             >
-              {paused ? '继续' : '暂停'}
+              {receivePaused || paused ? '继续' : '暂停'}
             </button>
             <button
               ref={pidButtonRef}

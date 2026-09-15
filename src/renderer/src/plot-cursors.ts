@@ -1,4 +1,14 @@
 export type PlotCursors = { a: number; b: number }
+export type AnchoredPlotCursors = PlotCursors & { endIndex: number }
+
+export function followPlotCursors(
+  selection: AnchoredPlotCursors | null,
+  endIndex: number,
+  lastIndex: number
+): PlotCursors | null {
+  if (!selection || lastIndex < 0 || Math.abs(selection.a - selection.b) > lastIndex) return null
+  return shiftPlotCursors(selection, endIndex - selection.endIndex, lastIndex)
+}
 
 // Clamp the shared offset, not each cursor, so reversed ranges keep their width.
 export function shiftPlotCursors(
