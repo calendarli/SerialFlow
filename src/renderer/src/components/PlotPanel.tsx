@@ -107,7 +107,7 @@ function loadPlotColors(): PlotColors {
 
 function loadPlotHeight(): number {
   const saved = Number(localStorage.getItem(plotHeightKey))
-  return Number.isFinite(saved) ? clamp(saved, 160, 520) : defaultPlotHeight
+  return Number.isFinite(saved) ? Math.max(160, saved) : defaultPlotHeight
 }
 
 function loadXWindow(pointLimit: number): number {
@@ -200,7 +200,8 @@ export function PlotPanel({ store, enabledPorts, embedded = false }: Props): Rea
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem('serialflow.plotCollapsed') === 'true'
   )
-  const [height, setHeight] = useState(loadPlotHeight)
+  const [requestedHeight, setHeight] = useState(loadPlotHeight)
+  const [availableHeight, setAvailableHeight] = useState(700)
   const [plotColors, setPlotColors] = useState(loadPlotColors)
   const [resizing, setResizing] = useState(false)
   const [pointLimit, setPointLimit] = useState(() =>
@@ -235,7 +236,10 @@ export function PlotPanel({ store, enabledPorts, embedded = false }: Props): Rea
   }))
   const [programSaveError, setProgramSaveError] = useState('')
   const [programSaving, setProgramSaving] = useState(false)
-  const resizeStart = useRef({ y: 0, height: defaultPlotHeight, max: 520 })
+  const resizeStart = useRef({ y: 0, height: defaultPlotHeight, max: 530 })
+  const panelRef = useRef<HTMLElement | null>(null)
+  const maxHeight = Math.max(160, availableHeight - 170)
+  const height = Math.min(maxHeight, cursors ? Math.max(460, requestedHeight) : requestedHeight)
   const plotCanvasRef = useRef<HTMLDivElement | null>(null)
   const curveCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const plotWorkerRef = useRef<Worker | null>(null)
@@ -251,6 +255,15 @@ export function PlotPanel({ store, enabledPorts, embedded = false }: Props): Rea
   const xRangeDrag = useRef<XRangeDrag | null>(null)
   const yDrag = useRef<{ y: number; range: YRange } | null>(null)
   const closeFloatingPanel = useCallback(() => setOpenPanel(null), [])
+
+  useEffect(() => {
+    const container = panelRef.current?.parentElement
+    if (!embedded || !container) return
+    const observer = new ResizeObserver(() => setAvailableHeight(container.clientHeight))
+    setAvailableHeight(container.clientHeight)
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [embedded])
 
   useEffect(() => {
     const canvas = plotCanvasRef.current
@@ -874,7 +887,7 @@ export function PlotPanel({ store, enabledPorts, embedded = false }: Props): Rea
     resizeStart.current = {
       y: event.clientY,
       height,
-      max: Math.max(160, Math.min(520, availableHeight - 170))
+      max: Math.max(160, availableHeight - 170)
     }
     latestHeight.current = height
     event.currentTarget.setPointerCapture(event.pointerId)
@@ -1085,10 +1098,9 @@ export function PlotPanel({ store, enabledPorts, embedded = false }: Props): Rea
 
   return (
     <section
+      ref={panelRef}
       className={`plot-panel ${embedded ? 'embedded' : ''} ${collapsed ? 'collapsed' : ''} ${cursors ? 'measuring' : ''}`}
-      style={
-        embedded ? { height: collapsed ? 58 : cursors ? Math.max(460, height) : height } : undefined
-      }
+      style={embedded ? { height: collapsed ? 58 : height } : undefined}
     >
       <header className="plot-toolbar plot-toolbar-compact">
         <div className="plot-heading">

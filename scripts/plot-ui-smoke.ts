@@ -76,6 +76,46 @@ app.whenReady().then(async () => {
       'plot enabled through UI'
     )
     await new Promise((resolve) => setTimeout(resolve, 50))
+    const layout = () =>
+      run(`(() => {
+      const plot = document.querySelector('.plot-panel').getBoundingClientRect();
+      const stack = document.querySelector('.interaction-stack').getBoundingClientRect();
+      const receiver = document.querySelector('.interaction-stack > .receiver').getBoundingClientRect();
+      return {height:plot.height, available:stack.height, receive:receiver.height}
+    })()`)
+    window.setSize(1400, 1300)
+    await until(async () => (await layout()).available > 950, 'tall plot container')
+    const divider = await run(`(() => {
+      const r=document.querySelector('.plot-panel-resizer').getBoundingClientRect();
+      return {x:Math.round(r.x+r.width/2), y:Math.round(r.y+2)}
+    })()`)
+    window.webContents.sendInputEvent({ type: 'mouseMove', ...divider })
+    window.webContents.sendInputEvent({
+      type: 'mouseDown',
+      ...divider,
+      button: 'left',
+      clickCount: 1
+    })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    window.webContents.sendInputEvent({ type: 'mouseMove', x: divider.x, y: 850 })
+    window.webContents.sendInputEvent({
+      type: 'mouseUp',
+      x: divider.x,
+      y: 850,
+      button: 'left',
+      clickCount: 1
+    })
+    await until(async () => (await layout()).height > 520, 'plot can grow beyond 520 pixels')
+    assert((await layout()).receive >= 169)
+    window.setSize(1400, 800)
+    await until(async () => {
+      const size = await layout()
+      return size.available < 650 && size.height <= size.available - 169 && size.receive >= 169
+    }, 'plot shrinks with available space')
+    window.setSize(1400, 1000)
+    await run(
+      `document.querySelector('.plot-panel-resizer').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}))`
+    )
     const send = (texts: string[]) =>
       window.webContents.send('serial:data', {
         path: 'COM991',
