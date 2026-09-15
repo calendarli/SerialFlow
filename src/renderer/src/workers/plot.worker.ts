@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 
-type PlotSample = { id: number; values: Record<string, number> }
+import { PlotBuffer, plotVertices, type PlotSample } from '../plot-data'
 type InitMessage = { type: 'init'; canvas: OffscreenCanvas }
 type DataMessage = {
   type: 'data'
@@ -18,10 +18,13 @@ type RenderMessage = {
   endOffset: number
   yMin: number
   yMax: number
-  channels: { name: string; color: string }[]
+  channels: { name: string; color: string; port: string }[]
+  xMode: 'time' | 'points'
+  timeStart: number
+  timeSpan: number
+  lineMode: 'linear' | 'step'
 }
 type Message = InitMessage | DataMessage | RenderMessage
-type Point = { index: number; value: number }
 
 const plotLeft = 28
 const plotRight = 910
@@ -32,31 +35,9 @@ const plotHeight = plotBottom - plotTop
 
 let canvas: OffscreenCanvas | null = null
 let context: OffscreenCanvasRenderingContext2D | null = null
-let samples: PlotSample[] = []
+let samples = new PlotBuffer<PlotSample>(1000)
 let pendingRender: RenderMessage | null = null
 let renderQueued = false
-
-function downsampleMinMax(points: Point[], bucketCount: number): Point[] {
-  if (points.length <= bucketCount * 2 || bucketCount < 2) return points
-  const result: Point[] = []
-  const size = points.length / bucketCount
-  for (let bucket = 0; bucket < bucketCount; bucket += 1) {
-    const from = Math.floor(bucket * size)
-    const to = Math.min(points.length, Math.floor((bucket + 1) * size))
-    if (from >= to) continue
-    let minIndex = from
-    let maxIndex = from
-    for (let index = from + 1; index < to; index += 1) {
-      if (points[index].value < points[minIndex].value) minIndex = index
-      if (points[index].value > points[maxIndex].value) maxIndex = index
-    }
-    if (minIndex <= maxIndex) {
-      result.push(points[minIndex])
-      if (maxIndex !== minIndex) result.push(points[maxIndex])
-    } else result.push(points[maxIndex], points[minIndex])
-  }
-  return result
-}
 
 function draw(message: RenderMessage): void {
   if (!canvas || !context) return
@@ -87,12 +68,18 @@ function draw(message: RenderMessage): void {
   context.lineJoin = 'round'
   context.lineCap = 'round'
   for (const channel of message.channels) {
-    const raw: Point[] = []
-    for (let index = firstIndex; index < lastIndex; index += 1) {
-      const value = samples[index]?.values[channel.name]
-      if (Number.isFinite(value)) raw.push({ index, value })
-    }
-    const points = downsampleMinMax(raw, Math.max(100, Math.floor(message.width)))
+    const points = plotVertices(
+      samples,
+      channel.name,
+      channel.port,
+      firstIndex,
+      lastIndex - 1,
+      message.width,
+      (sample, index) =>
+        message.xMode === 'time'
+          ? (sample.timestamp - message.timeStart) / message.timeSpan
+          : (index - viewStartIndex) / Math.max(1, message.xWindowPoints - 1)
+    )
     if (!points.length) continue
     context.beginPath()
     let drawing = false
@@ -100,11 +87,14 @@ function draw(message: RenderMessage): void {
     for (const point of points) {
       const x =
         plotLeft +
-        ((point.index - viewStartIndex) / Math.max(1, message.xWindowPoints - 1)) * plotWidth
+        (message.xMode === 'time'
+          ? (point.timestamp - message.timeStart) / message.timeSpan
+          : (point.index - viewStartIndex) / Math.max(1, message.xWindowPoints - 1)) *
+          plotWidth
       const y = plotBottom - ((point.value - message.yMin) / ySpan) * plotHeight
-      if (!drawing) context.moveTo(x, y)
+      if (!drawing || point.move) context.moveTo(x, y)
       else {
-        context.lineTo(x, previousY)
+        if (message.lineMode === 'step') context.lineTo(x, previousY)
         context.lineTo(x, y)
       }
       previousY = y
@@ -136,15 +126,12 @@ self.onmessage = (event: MessageEvent<Message>): void => {
     return
   }
   if (message.type === 'data') {
-    if (message.reset) samples = message.samples
-    else if (message.samples.length) samples.push(...message.samples)
-    if (message.pruneBeforeId) {
-      let pruneCount = 0
-      while (pruneCount < samples.length && samples[pruneCount].id < message.pruneBeforeId)
-        pruneCount += 1
-      if (pruneCount) samples = samples.slice(pruneCount)
+    if (message.reset || samples.capacity !== message.pointLimit) {
+      const retained = message.reset ? [] : samples.slice(-message.pointLimit)
+      samples = new PlotBuffer(message.pointLimit)
+      for (const sample of retained) samples.push(sample)
     }
-    if (samples.length > message.pointLimit) samples = samples.slice(-message.pointLimit)
+    for (const sample of message.samples) samples.push(sample)
     return
   }
   queueRender(message)

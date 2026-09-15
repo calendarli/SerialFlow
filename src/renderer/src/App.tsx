@@ -14,6 +14,7 @@ import { removeReplyGroup } from './auto-reply-groups'
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ReceivePanel } from './components/ReceivePanel'
 import { PlotPanel } from './components/PlotPanel'
+import { PlotStore } from './plot-store'
 import { ModbusPanel } from './components/ModbusPanel'
 import { AutoReplyPanel } from './components/AutoReplyPanel'
 import { AboutPanel } from './components/AboutPanel'
@@ -449,6 +450,18 @@ function App(): React.JSX.Element {
     [serialConfigs]
   )
   const openedPortList = useMemo(() => [...openedPorts], [openedPorts])
+  const plotStore = useMemo(() => {
+    const store = new PlotStore()
+    try {
+      const saved = JSON.parse(localStorage.getItem('serialflow.plotProgram') || 'null')
+      if (saved && typeof saved.source === 'string')
+        store.configureProgram(saved.enabled === true, saved.source)
+    } catch {
+      /* Use raw channels for invalid saved settings. */
+    }
+    return store
+  }, [])
+  useEffect(() => () => plotStore.dispose(), [plotStore])
   const [connectionBusy, setConnectionBusy] = useState(false)
   const [rxHex, setRxHex] = useState(() => loadBooleanSetting(receiveHexKey, false))
   const [timestamp, setTimestamp] = useState(() => loadBooleanSetting(timestampKey, true))
@@ -600,6 +613,8 @@ function App(): React.JSX.Element {
       rawHex?: string
     ): void => {
       const pending = pendingInteractionsRef.current
+      const timestampMs = Date.now()
+      if (direction === 'rx') plotStore.append(port, plotText ?? text, timestampMs)
       if (direction === 'rx') {
         pending.rxEvents += 1
         trafficEventsRef.current.rx += 1
@@ -615,16 +630,18 @@ function App(): React.JSX.Element {
           text,
           rawHex,
           plotText,
-          timestampMs: Date.now(),
+          timestampMs,
           bytes,
-          time: interactionSettingsRef.current.timestamp ? formatTime() : undefined
+          time: interactionSettingsRef.current.timestamp
+            ? formatTime(new Date(timestampMs))
+            : undefined
         })
       }
       if (pendingFrameRef.current === null)
         // Batch presentation only; framing, matching and counters still see every frame.
         pendingFrameRef.current = window.setTimeout(flushInteractions, 32)
     },
-    [flushInteractions]
+    [flushInteractions, plotStore]
   )
 
   const compiledRules = useMemo(
@@ -976,6 +993,7 @@ function App(): React.JSX.Element {
       }
     })
     const offStatus = window.api.onStatus((status) => {
+      if (!status.open) plotStore.disconnect(status.path)
       serialSessionVersions.current.set(
         status.path,
         (serialSessionVersions.current.get(status.path) || 0) + 1
@@ -1019,7 +1037,8 @@ function App(): React.JSX.Element {
     serialConfigs,
     send,
     sendPort,
-    showError
+    showError,
+    plotStore
   ])
 
   useEffect(() => {
@@ -1532,7 +1551,7 @@ function App(): React.JSX.Element {
             style={{ gridTemplateRows: `minmax(200px, 1fr) ${sendPanelHeight}px` }}
           >
             <div className="interaction-stack">
-              <PlotPanel entries={interactionCache.entries} enabledPorts={plotPorts} embedded />
+              <PlotPanel store={plotStore} enabledPorts={plotPorts} embedded />
               <ReceivePanel
                 entries={interactionCache.entries}
                 rxHex={rxHex}

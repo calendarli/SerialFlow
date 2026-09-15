@@ -6092,6 +6092,118 @@ footer > span:first-child {
 }
 
 /* Oscilloscope-style plot: chart, right-side channel readings and compact controls. */
+.plot-measurements {
+  grid-column: 1 / -1;
+  grid-row: 4;
+  min-width: 0;
+  padding: 9px 12px;
+  border-top: 1px solid var(--border);
+  background: #f8fafc;
+}
+.plot-program-editor {
+  display: grid;
+  gap: 10px;
+  width: min(660px, calc(100vw - 32px));
+  padding: 14px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 30px #17203320;
+}
+.plot-program-editor small {
+  color: var(--muted);
+  line-height: 1.6;
+}
+.plot-program-editor > button {
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 5px;
+  background: var(--primary);
+  color: #fff;
+}
+.plot-program-editor p[role='alert'] {
+  color: #b42318;
+}
+.plot-measurements-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+.plot-measurements-controls label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.plot-measurements-controls input {
+  width: 74px;
+  padding: 3px 5px;
+}
+.plot-measurements-controls button {
+  padding: 3px 7px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #fff;
+}
+.plot-measurements-controls button[aria-pressed='true'] {
+  color: var(--primary);
+  border-color: var(--primary);
+}
+.plot-measurements > small {
+  display: block;
+  margin: 6px 0;
+  color: var(--muted);
+}
+.plot-measurements-table {
+  max-height: 120px;
+  overflow: auto;
+}
+.plot-measurements table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.plot-measurements th,
+.plot-measurements td {
+  padding: 4px 9px;
+  text-align: right;
+  border-bottom: 1px solid var(--border);
+}
+.plot-measurements th:first-child {
+  text-align: left;
+}
+.plot-measurement-selection rect {
+  fill: #2563eb12;
+}
+.plot-measurement-cursor {
+  color: #2563eb;
+}
+.plot-measurement-cursor.cursor-b {
+  color: #d97706;
+}
+.plot-measurement-cursor line {
+  stroke: currentColor;
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  stroke-dasharray: 5 3;
+}
+.plot-measurement-cursor text {
+  fill: currentColor;
+  font-weight: 700;
+  font-size: 18px;
+  pointer-events: none;
+}
+.plot-measurement-cursor rect {
+  cursor: ew-resize;
+  touch-action: none;
+}
+.plot-measurement-cursor rect:focus-visible {
+  outline: 2px solid currentColor;
+}
+.interaction-content .plot-panel.embedded.measuring:not(.collapsed) {
+  grid-template-rows: auto minmax(120px, 1fr) auto auto;
+}
 .interaction-content .plot-panel.embedded:not(.collapsed) {
   grid-template-columns: minmax(0, 1fr) 164px;
   grid-template-rows: auto minmax(0, 1fr) auto;
@@ -7165,7 +7277,7 @@ footer > span:first-child {
   box-shadow: 0 0 0 2px #2563eb18;
 }
 
-:is(.command-editor-modal, .reply-editor-modal, .data-window-editor)
+:is(.command-editor-modal, .reply-editor-modal, .data-window-editor, .plot-program-editor)
   .program-code-editor
   :is(pre, textarea) {
   box-sizing: border-box;
@@ -7216,7 +7328,9 @@ footer > span:first-child {
   font-variant-ligatures: inherit;
 }
 
-:is(.command-editor-modal, .reply-editor-modal, .data-window-editor) .program-code-editor textarea {
+:is(.command-editor-modal, .reply-editor-modal, .data-window-editor, .plot-program-editor)
+  .program-code-editor
+  textarea {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -7255,7 +7369,7 @@ footer > span:first-child {
   .program-code-editor pre {
     visibility: hidden;
   }
-  :is(.command-editor-modal, .reply-editor-modal, .data-window-editor)
+  :is(.command-editor-modal, .reply-editor-modal, .data-window-editor, .plot-program-editor)
     .program-code-editor
     textarea {
     color: CanvasText;

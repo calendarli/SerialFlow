@@ -1,18 +1,20 @@
+import { PlotStore } from '../plot-store'
 import { ClearActionIcon } from './ClearActionIcon'
 import { settlingTime } from '../settling-time'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { InteractionEntry } from '../types'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { PlotBuffer, measurePlot, plotVertices, type PlotSample as Sample } from '../plot-data'
 import { FloatingPanel } from './FloatingPanel'
+import { ProgramCodeEditor } from './ProgramCodeEditor'
+import { defaultPlotProgram } from '../plot-program'
+import { compileProgramSource } from '../scripts/program-source'
 
-type Props = { entries: InteractionEntry[]; enabledPorts: string[]; embedded?: boolean }
-type Sample = { id: number; timestamp: number; values: Record<string, number> }
+type Props = { store: PlotStore; enabledPorts: string[]; embedded?: boolean }
 type PlotColors = { background: string; grid: string; series: string[] }
 type YRange = { min: number; max: number }
 type HoverValue = { name: string; color: string; value: number; y: number }
 type HoverState = { x: number; timestamp: number; pointOffset: number; values: HoverValue[] }
 type AxisCursor =
   { axis: 'x'; x: number; pointOffset: number } | { axis: 'y'; y: number; value: number }
-type SeriesPoint = { index: number; timestamp: number; value: number }
 type XRangeDrag = {
   mode: 'start' | 'pan' | 'end'
   x: number
@@ -71,23 +73,12 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
 }
 
-function firstIndexAfterId<T extends { id: number }>(items: T[], id: number): number {
-  let low = 0
-  let high = items.length
+function firstIndexAfterId(items: PlotBuffer<Sample>, id: number): number {
+  let low = 0,
+    high = items.length
   while (low < high) {
-    const middle = Math.floor((low + high) / 2)
-    if (items[middle].id <= id) low = middle + 1
-    else high = middle
-  }
-  return low
-}
-
-function firstIndexAtOrAfterId<T extends { id: number }>(items: T[], id: number): number {
-  let low = 0
-  let high = items.length
-  while (low < high) {
-    const middle = Math.floor((low + high) / 2)
-    if (items[middle].id < id) low = middle + 1
+    const middle = (low + high) >>> 1
+    if (items.at(middle)!.id <= id) low = middle + 1
     else high = middle
   }
   return low
@@ -190,30 +181,6 @@ function loadPidSettings(): PidSettings {
   }
 }
 
-function parseSample(entry: InteractionEntry, includePort: boolean): Sample | null {
-  if (entry.direction !== 'rx') return null
-  const text = (entry.plotText ?? entry.text).trim()
-  const channelName = (name: string): string => (includePort ? `${entry.port} · ${name}` : name)
-  const named = [...text.matchAll(/([\p{L}_][\p{L}\p{N}_]*)\s*[=:]\s*(-?\d+(?:\.\d+)?)/gu)]
-  const timestamp = entry.timestampMs ?? entry.id
-  if (named.length)
-    return {
-      id: entry.id,
-      timestamp,
-      values: Object.fromEntries(named.map((item) => [channelName(item[1]), Number(item[2])]))
-    }
-  const parts = text.split(/[,;\s]+/).filter(Boolean)
-  if (!parts.length || parts.length > 8 || parts.some((part) => !Number.isFinite(Number(part))))
-    return null
-  return {
-    id: entry.id,
-    timestamp,
-    values: Object.fromEntries(
-      parts.map((value, index) => [channelName(`CH${index + 1}`), Number(value)])
-    )
-  }
-}
-
 function formatTime(timestamp: number, windowMs: number): string {
   const date = new Date(timestamp)
   const base = `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}:${String(date.getSeconds()).padStart(2, '0')}`
@@ -221,47 +188,15 @@ function formatTime(timestamp: number, windowMs: number): string {
 }
 
 function formatAxisValue(value: number): string {
+  if (!Number.isFinite(value)) return '—'
   const absolute = Math.abs(value)
   if ((absolute > 0 && absolute < 0.001) || absolute >= 100000) return value.toExponential(2)
   return Number(value.toPrecision(5)).toLocaleString()
 }
 
-function downsampleMinMax(points: SeriesPoint[], bucketCount: number): SeriesPoint[] {
-  if (points.length <= bucketCount * 2 || bucketCount < 2) return points
-  const result: SeriesPoint[] = []
-  const size = points.length / bucketCount
-  for (let bucket = 0; bucket < bucketCount; bucket += 1) {
-    const from = Math.floor(bucket * size)
-    const to = Math.min(points.length, Math.floor((bucket + 1) * size))
-    if (from >= to) continue
-    let minIndex = from
-    let maxIndex = from
-    for (let index = from + 1; index < to; index += 1) {
-      if (points[index].value < points[minIndex].value) minIndex = index
-      if (points[index].value > points[maxIndex].value) maxIndex = index
-    }
-    if (minIndex <= maxIndex) {
-      result.push(points[minIndex])
-      if (maxIndex !== minIndex) result.push(points[maxIndex])
-    } else {
-      result.push(points[maxIndex], points[minIndex])
-    }
-  }
-  return result
-}
-
-function sampleSeriesValue(points: SeriesPoint[], index: number): number | null {
-  if (!points.length) return null
-  const nextIndex = points.findIndex((point) => point.index >= index)
-  if (nextIndex === 0) return points[0].value
-  if (nextIndex < 0) return points[points.length - 1].value
-  if (points[nextIndex].index === index) return points[nextIndex].value
-  return points[nextIndex - 1].value
-}
-
-export function PlotPanel({ entries, enabledPorts, embedded = false }: Props): React.JSX.Element {
+export function PlotPanel({ store, enabledPorts, embedded = false }: Props): React.JSX.Element {
   const [paused, setPaused] = useState(false)
-  const [frozenEntries, setFrozenEntries] = useState<InteractionEntry[]>([])
+  const [frozenSamples, setFrozenSamples] = useState<PlotBuffer<Sample> | null>(null)
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem('serialflow.plotCollapsed') === 'true'
   )
@@ -269,20 +204,37 @@ export function PlotPanel({ entries, enabledPorts, embedded = false }: Props): R
   const [plotColors, setPlotColors] = useState(loadPlotColors)
   const [resizing, setResizing] = useState(false)
   const [pointLimit, setPointLimit] = useState(() =>
-    clamp(Number(localStorage.getItem('serialflow.plotPointLimit')) || 1000, 100, maxPlotPoints)
+    clamp(
+      Math.floor(Number(localStorage.getItem('serialflow.plotPointLimit')) || 1000),
+      100,
+      maxPlotPoints
+    )
   )
   const [startId, setStartId] = useState(0)
+  const [xMode, setXMode] = useState<'time' | 'points'>('points')
+  const [lineMode, setLineMode] = useState<'linear' | 'step'>('linear')
+  const [yAutoMode, setYAutoMode] = useState<'full' | 'robust'>('full')
+  const [cursors, setCursors] = useState<{ a: number; b: number } | null>(null)
+  const cursorDrag = useRef<'a' | 'b' | null>(null)
+  const [activeCursor, setActiveCursor] = useState<'a' | 'b'>('a')
+  const measurementWindow = useRef<number | null>(null)
   const [xWindowPoints, setXWindowPoints] = useState(() => loadXWindow(pointLimit))
   const [viewEndIndex, setViewEndIndex] = useState<number | null>(null)
   const [manualYRange, setManualYRange] = useState<YRange | null>(null)
-  const [hover, setHover] = useState<HoverState | null>(null)
+  const [hoverState, setHover] = useState<HoverState | null>(null)
   const [hoveredAxis, setHoveredAxis] = useState<'x' | 'y' | null>(null)
   const [axisCursor, setAxisCursor] = useState<AxisCursor | null>(null)
   const [timelineDragging, setTimelineDragging] = useState(false)
   const [disabledChannels, setDisabledChannels] = useState(loadDisabledChannels)
   const [pidSettings, setPidSettings] = useState(loadPidSettings)
   const [canvasWidth, setCanvasWidth] = useState(1000)
-  const [openPanel, setOpenPanel] = useState<'settings' | 'colors' | 'pid' | null>(null)
+  const [openPanel, setOpenPanel] = useState<'settings' | 'colors' | 'pid' | 'program' | null>(null)
+  const [programDraft, setProgramDraft] = useState(() => ({
+    enabled: store.program.enabled,
+    source: store.program.source || defaultPlotProgram
+  }))
+  const [programSaveError, setProgramSaveError] = useState('')
+  const [programSaving, setProgramSaving] = useState(false)
   const resizeStart = useRef({ y: 0, height: defaultPlotHeight, max: 520 })
   const plotCanvasRef = useRef<HTMLDivElement | null>(null)
   const curveCanvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -290,14 +242,8 @@ export function PlotPanel({ entries, enabledPorts, embedded = false }: Props): R
   const workerRenderingRef = useRef(false)
   const transferredCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const workerSyncRef = useRef({ key: '', lastId: 0 })
-  const sampleCacheRef = useRef<{
-    key: string
-    lastEntryId: number
-    samples: Sample[]
-  }>({ key: '', lastEntryId: 0, samples: [] })
   const hoverFrameRef = useRef(0)
   const axisCursorFrameRef = useRef(0)
-  const lastLiveHoverUpdateRef = useRef(0)
   const settingsButtonRef = useRef<HTMLButtonElement | null>(null)
   const pidButtonRef = useRef<HTMLButtonElement | null>(null)
   const latestHeight = useRef(height)
@@ -316,139 +262,198 @@ export function PlotPanel({ entries, enabledPorts, embedded = false }: Props): R
     return () => observer.disconnect()
   }, [collapsed])
 
-  const enabledPortSet = useMemo(() => new Set(enabledPorts), [enabledPorts])
-  const allSamples = useMemo(() => {
-    const source = paused ? frozenEntries : entries
-    const key = `${paused ? 'paused' : 'live'}\u0000${startId}\u0000${pointLimit}\u0000${enabledPorts.join('\u0000')}`
-    const cache = sampleCacheRef.current
-    const latestEntryId = source.at(-1)?.id || 0
-    const reset = cache.key !== key || latestEntryId < cache.lastEntryId
-    const lastEntryId = reset ? 0 : cache.lastEntryId
-    const additionStart = firstIndexAfterId(source, Math.max(startId, lastEntryId))
-    const additions = source
-      .slice(additionStart)
-      .filter((entry) => enabledPortSet.has(entry.port))
-      .map((entry) => parseSample(entry, enabledPorts.length > 1))
-      .filter((item): item is Sample => Boolean(item))
-    const oldestEntryId = source[0]?.id || 0
-    const retainedThreshold = Math.max(oldestEntryId, startId + 1)
-    const retained = reset
-      ? []
-      : cache.samples.slice(firstIndexAtOrAfterId(cache.samples, retainedThreshold))
-    const samples = [...retained, ...additions].slice(-pointLimit)
-    sampleCacheRef.current = { key, lastEntryId: latestEntryId, samples }
-    return samples
-  }, [enabledPortSet, enabledPorts, entries, frozenEntries, paused, pointLimit, startId])
+  const revision = useSyncExternalStore(
+    paused ? () => () => {} : store.subscribe,
+    paused ? () => 0 : store.getSnapshot
+  )
+  useEffect(() => {
+    store.configure(enabledPorts, pointLimit)
+  }, [store, enabledPorts, pointLimit])
+  useEffect(() => {
+    setCursors(null)
+    setPaused(false)
+    setFrozenSamples(null)
+    setViewEndIndex(null)
+    setHover(null)
+  }, [enabledPorts, pointLimit])
+  const allSamples = paused && frozenSamples ? frozenSamples : store.samples
   const liveEndIndex = Math.max(0, allSamples.length - 1)
   const endIndex = clamp(viewEndIndex ?? liveEndIndex, 0, liveEndIndex)
   const viewStartIndex = endIndex - xWindowPoints + 1
   const startIndex = Math.max(0, viewStartIndex)
-  const visibleSamples = useMemo(
-    () => allSamples.slice(startIndex, endIndex + 1),
-    [allSamples, endIndex, startIndex]
-  )
-  const drawableSamples = useMemo(() => {
-    if (!visibleSamples.length) return visibleSamples
-    const firstVisibleIndex = allSamples.indexOf(visibleSamples[0])
-    const lastVisibleIndex = allSamples.indexOf(visibleSamples[visibleSamples.length - 1])
-    return allSamples.slice(
-      Math.max(0, firstVisibleIndex - 1),
-      Math.min(allSamples.length, lastVisibleIndex + 2)
-    )
-  }, [allSamples, visibleSamples])
-  const drawableStartIndex = drawableSamples.length
-    ? allSamples.indexOf(drawableSamples[0])
-    : startIndex
-  const channelNames = useMemo(
-    () => [...new Set(allSamples.flatMap((item) => Object.keys(item.values)))].slice(0, 8),
-    [allSamples]
-  )
+  const visibleCount = Math.min(allSamples.length, Math.max(0, endIndex - startIndex + 1))
+  // The ring mutates in place; revision invalidates derived views once per presentation batch.
+  const channelNames = useMemo(() => {
+    void revision
+    return [...store.channels.keys()]
+  }, [store, revision])
   const activeChannelNames = useMemo(
     () => channelNames.filter((name) => !disabledChannels.has(name)),
     [channelNames, disabledChannels]
   )
+  const windowStatistics = useMemo(() => {
+    void revision
+    return measurePlot(allSamples, startIndex, endIndex, activeChannelNames)
+  }, [allSamples, revision, startIndex, endIndex, activeChannelNames])
   const autoYRange = useMemo<YRange>(() => {
-    const values = visibleSamples.flatMap((sample) =>
-      activeChannelNames.flatMap((name) =>
-        Number.isFinite(sample.values[name]) ? [sample.values[name]] : []
-      )
-    )
-    if (!values.length) return { min: -1, max: 1 }
-    let min: number
-    let max: number
-    if (values.length >= 40) {
-      const sorted = [...values].sort((left, right) => left - right)
-      const trimCount = Math.max(1, Math.floor(sorted.length * 0.01))
-      min = sorted[trimCount]
-      max = sorted[sorted.length - 1 - trimCount]
-    } else {
-      min = Math.min(...values)
-      max = Math.max(...values)
-    }
+    let min = Infinity,
+      max = -Infinity
+    if (yAutoMode === 'robust') {
+      const values = allSamples
+        .slice(startIndex, endIndex + 1)
+        .flatMap((sample) =>
+          activeChannelNames.flatMap((name) =>
+            Number.isFinite(sample.values[name]) ? [sample.values[name]] : []
+          )
+        )
+        .sort((a, b) => a - b)
+      if (values.length) {
+        const trim = values.length >= 40 ? Math.max(1, Math.floor(values.length * 0.01)) : 0
+        min = values[trim]
+        max = values[values.length - 1 - trim]
+      }
+    } else
+      for (const item of Object.values(windowStatistics))
+        if (item.count) {
+          min = Math.min(min, item.min)
+          max = Math.max(max, item.max)
+        }
+    if (!Number.isFinite(min) || !Number.isFinite(max)) return { min: -1, max: 1 }
     const padding = (max - min || Math.max(Math.abs(max), 1)) * 0.1
     return { min: min - padding, max: max + padding }
-  }, [activeChannelNames, visibleSamples])
-  useEffect(() => {
-    if (manualYRange !== null || !visibleSamples.length) return
-    setManualYRange({ ...autoYRange })
-  }, [autoYRange, manualYRange, visibleSamples.length])
+  }, [windowStatistics, yAutoMode, allSamples, startIndex, endIndex, activeChannelNames])
   const yRange = manualYRange ?? autoYRange
   const ySpan = Math.max(Number.EPSILON, yRange.max - yRange.min)
   const valueToY = useCallback(
-    (value: number): number => plotBottom - ((value - yRange.min) / ySpan) * plotHeight,
+    (value: number) => plotBottom - ((value - yRange.min) / ySpan) * plotHeight,
     [yRange.min, ySpan]
   )
+  const timeStart = allSamples.at(startIndex)?.timestamp ?? 0
+  const timeEnd = allSamples.at(endIndex)?.timestamp ?? timeStart
+  const timeSpan = Math.max(1, timeEnd - timeStart)
+  const indexToX = (index: number): number =>
+    plotLeft +
+    (xMode === 'time'
+      ? ((allSamples.at(index)?.timestamp ?? timeStart) - timeStart) / timeSpan
+      : (index - viewStartIndex) / Math.max(1, xWindowPoints - 1)) *
+      plotWidth
+  const xToIndex = (x: number): number => {
+    const ratio = clamp((x - plotLeft) / plotWidth, 0, 1)
+    if (xMode === 'points')
+      return clamp(
+        Math.round(viewStartIndex + ratio * Math.max(0, xWindowPoints - 1)),
+        startIndex,
+        endIndex
+      )
+    const target = timeStart + ratio * timeSpan
+    let low = startIndex,
+      high = endIndex
+    while (low < high) {
+      const mid = (low + high) >>> 1
+      if (allSamples.at(mid)!.timestamp < target) low = mid + 1
+      else high = mid
+    }
+    return low > startIndex &&
+      target - allSamples.at(low - 1)!.timestamp < allSamples.at(low)!.timestamp - target
+      ? low - 1
+      : low
+  }
   const series = useMemo(
     () =>
       activeChannelNames.map((name) => {
+        const stats = windowStatistics[name]
         const colorIndex = channelNames.indexOf(name)
-        const points = visibleSamples.flatMap((sample, index) =>
-          Number.isFinite(sample.values[name])
-            ? [
-                {
-                  index: startIndex + index,
-                  timestamp: sample.timestamp,
-                  value: sample.values[name]
-                }
-              ]
-            : []
-        )
-        const drawablePoints = drawableSamples.flatMap((sample, index) =>
-          Number.isFinite(sample.values[name])
-            ? [
-                {
-                  index: drawableStartIndex + index,
-                  timestamp: sample.timestamp,
-                  value: sample.values[name]
-                }
-              ]
-            : []
-        )
-        const values = points.map((point) => point.value)
         return {
           name,
           colorIndex,
           color: plotColors.series[colorIndex],
-          min: values.length ? Math.min(...values) : 0,
-          max: values.length ? Math.max(...values) : 0,
-          latest: values.at(-1) ?? 0,
-          hoverPoints: drawablePoints,
+          min: stats.count ? stats.min : 0,
+          max: stats.count ? stats.max : 0,
+          latest: stats.latest ?? NaN,
           renderPoints: workerRenderingRef.current
             ? []
-            : downsampleMinMax(drawablePoints, Math.max(100, Math.floor(canvasWidth)))
+            : plotVertices(
+                allSamples,
+                name,
+                store.channels.get(name) || '',
+                startIndex - 1,
+                endIndex + 1,
+                canvasWidth,
+                (sample, index) =>
+                  xMode === 'time'
+                    ? (sample.timestamp - timeStart) / timeSpan
+                    : (index - viewStartIndex) / Math.max(1, xWindowPoints - 1)
+              )
         }
       }),
     [
       activeChannelNames,
-      canvasWidth,
+      windowStatistics,
       channelNames,
-      drawableStartIndex,
-      drawableSamples,
       plotColors.series,
+      allSamples,
+      store,
       startIndex,
-      visibleSamples
+      endIndex,
+      canvasWidth,
+      xMode,
+      timeStart,
+      timeSpan,
+      viewStartIndex,
+      xWindowPoints
     ]
   )
+
+  const measurement = useMemo(
+    () => (cursors ? measurePlot(allSamples, cursors.a, cursors.b, activeChannelNames) : null),
+    [allSamples, cursors, activeChannelNames]
+  )
+  const hoverIndex = hoverState ? xToIndex(hoverState.x) : 0
+  const hover =
+    hoverState && allSamples.length
+      ? {
+          ...hoverState,
+          timestamp: allSamples.at(hoverIndex)?.timestamp ?? 0,
+          pointOffset: hoverIndex - liveEndIndex,
+          values: series.flatMap<HoverValue>((item) => {
+            const value = allSamples.at(hoverIndex)?.values[item.name]
+            return Number.isFinite(value)
+              ? [{ name: item.name, color: item.color, value: value!, y: valueToY(value!) }]
+              : []
+          })
+        }
+      : null
+  const beginMeasurement = (): void => {
+    if (cursors) {
+      setCursors(null)
+      return
+    }
+    if (!visibleCount) return
+    measurementWindow.current = xWindowPoints
+    if (visibleCount < xWindowPoints) setXWindowPoints(Math.max(1, visibleCount))
+    if (!paused) {
+      setFrozenSamples(store.freeze())
+      setPaused(true)
+    }
+    setCursors({
+      a: startIndex + Math.floor((endIndex - startIndex) / 3),
+      b: startIndex + Math.ceil(((endIndex - startIndex) * 2) / 3)
+    })
+    setHover(null)
+    setActiveCursor('a')
+  }
+  const changeCursor = (which: 'a' | 'b', index: number): void => {
+    if (!Number.isFinite(index)) return
+    const next = clamp(Math.round(index), 0, liveEndIndex)
+    setCursors((current) => (current ? { ...current, [which]: next } : null))
+    if (next < startIndex || next > endIndex)
+      setViewEndIndex(Math.min(liveEndIndex, next + Math.floor(xWindowPoints / 2)))
+  }
+  const moveMeasurement = (event: React.PointerEvent<SVGElement>, which: 'a' | 'b'): void => {
+    const rect = event.currentTarget.ownerSVGElement?.getBoundingClientRect()
+    if (rect) changeCursor(which, xToIndex(((event.clientX - rect.left) / rect.width) * 1000))
+  }
+
   const timelineSpan = Math.max(1, pointLimit - 1)
   const timelineEndPercent = clamp(
     ((pointLimit - allSamples.length + endIndex) / timelineSpan) * 100,
@@ -487,15 +492,12 @@ export function PlotPanel({ entries, enabledPorts, embedded = false }: Props): R
     worker.postMessage({
       type: 'data',
       reset,
-      samples: allSamples.slice(additionStart).map((sample) => ({
-        id: sample.id,
-        values: sample.values
-      })),
+      samples: allSamples.slice(additionStart),
       pointLimit,
-      pruneBeforeId: allSamples[0]?.id || 0
+      pruneBeforeId: allSamples.at(0)?.id || 0
     })
     workerSyncRef.current = { key: syncKey, lastId }
-  }, [allSamples, enabledPorts, paused, pointLimit, startId])
+  }, [allSamples, revision, enabledPorts, paused, pointLimit, startId])
 
   useEffect(() => {
     const worker = plotWorkerRef.current
@@ -511,9 +513,30 @@ export function PlotPanel({ entries, enabledPorts, embedded = false }: Props): R
       endOffset: endIndex - liveEndIndex,
       yMin: yRange.min,
       yMax: yRange.max,
-      channels: series.map((item) => ({ name: item.name, color: item.color }))
+      channels: series.map((item) => ({
+        name: item.name,
+        color: item.color,
+        port: store.channels.get(item.name) || ''
+      })),
+      xMode,
+      timeStart,
+      timeSpan,
+      lineMode
     })
-  }, [collapsed, endIndex, height, liveEndIndex, series, xWindowPoints, yRange])
+  }, [
+    collapsed,
+    endIndex,
+    height,
+    liveEndIndex,
+    series,
+    xWindowPoints,
+    yRange,
+    xMode,
+    timeStart,
+    timeSpan,
+    lineMode,
+    store
+  ])
 
   useEffect(() => {
     const canvas = curveCanvasRef.current
@@ -545,12 +568,14 @@ export function PlotPanel({ entries, enabledPorts, embedded = false }: Props): R
       item.renderPoints.forEach((point) => {
         const x =
           plotLeft +
-          ((point.index - (endIndex - xWindowPoints + 1)) / Math.max(1, xWindowPoints - 1)) *
+          (xMode === 'time'
+            ? (point.timestamp - timeStart) / timeSpan
+            : (point.index - viewStartIndex) / Math.max(1, xWindowPoints - 1)) *
             plotWidth
         const y = plotBottom - ((point.value - yRange.min) / drawSpan) * plotHeight
-        if (!drawing) context.moveTo(x, y)
+        if (!drawing || point.move) context.moveTo(x, y)
         else {
-          context.lineTo(x, previousY)
+          if (lineMode === 'step') context.lineTo(x, previousY)
           context.lineTo(x, y)
         }
         previousY = y
@@ -560,7 +585,19 @@ export function PlotPanel({ entries, enabledPorts, embedded = false }: Props): R
       context.stroke()
     }
     context.restore()
-  }, [collapsed, endIndex, height, series, xWindowPoints, yRange])
+  }, [
+    collapsed,
+    endIndex,
+    height,
+    series,
+    xWindowPoints,
+    yRange,
+    xMode,
+    timeStart,
+    timeSpan,
+    lineMode,
+    viewStartIndex
+  ])
   const xTickCount = clamp(Math.floor(canvasWidth / 135) + 1, 6, 16)
   const xTicks = useMemo(() => {
     const count = Math.min(xTickCount, xWindowPoints)
@@ -589,6 +626,7 @@ export function PlotPanel({ entries, enabledPorts, embedded = false }: Props): R
     ? pidSettings.channel
     : channelNames[0] || ''
   const pidAnalysis = useMemo(() => {
+    void revision
     if (!pidSettings.enabled || !pidChannel || !allSamples.length) return null
     const latest = allSamples.at(-1)?.timestamp || 0
     const cutoff = latest - pidSettings.windowSeconds * 1000
@@ -804,7 +842,7 @@ export function PlotPanel({ entries, enabledPorts, embedded = false }: Props): R
         recommendation('D', pidSettings.kd, dFactor)
       ]
     }
-  }, [allSamples, pidChannel, pidSettings])
+  }, [allSamples, revision, pidChannel, pidSettings])
 
   const changePlotColors = (next: PlotColors): void => {
     setPlotColors(next)
@@ -935,11 +973,14 @@ export function PlotPanel({ entries, enabledPorts, embedded = false }: Props): R
     const rect = event.currentTarget.ownerSVGElement?.getBoundingClientRect()
     if (rect) {
       const x = clamp(((event.clientX - rect.left) / rect.width) * 1000, plotLeft, plotRight)
-      const pointOffset = Math.round(
-        viewStartIndex +
-          ((x - plotLeft) / plotWidth) * Math.max(0, xWindowPoints - 1) -
-          liveEndIndex
-      )
+      const pointOffset =
+        xMode === 'time'
+          ? xToIndex(x) - liveEndIndex
+          : Math.round(
+              viewStartIndex +
+                ((x - plotLeft) / plotWidth) * Math.max(0, xWindowPoints - 1) -
+                liveEndIndex
+            )
       window.cancelAnimationFrame(axisCursorFrameRef.current)
       axisCursorFrameRef.current = window.requestAnimationFrame(() =>
         setAxisCursor({ axis: 'x', x, pointOffset })
@@ -961,50 +1002,23 @@ export function PlotPanel({ entries, enabledPorts, embedded = false }: Props): R
   }
   const handlePlotHover = (event: React.PointerEvent<SVGRectElement>): void => {
     const rect = event.currentTarget.ownerSVGElement?.getBoundingClientRect()
-    if (!rect || !series.length || !visibleSamples.length) return setHover(null)
+    if (!rect || !series.length || !visibleCount) return setHover(null)
     const clientX = event.clientX
     window.cancelAnimationFrame(hoverFrameRef.current)
     hoverFrameRef.current = window.requestAnimationFrame(() => {
       const pointerX = clamp(((clientX - rect.left) / rect.width) * 1000, plotLeft, plotRight)
-      const pointerIndex = clamp(
-        startIndex + ((pointerX - plotLeft) / plotWidth) * Math.max(1, xWindowPoints - 1),
-        0,
-        liveEndIndex
-      )
-      const sampleIndex = clamp(Math.floor(pointerIndex), 0, liveEndIndex)
-      const pointerTime = allSamples[sampleIndex]?.timestamp ?? 0
+      const sampleIndex = xToIndex(pointerX)
+      const pointerTime = allSamples.at(sampleIndex)?.timestamp ?? 0
       const values = series.flatMap<HoverValue>((item) => {
-        const value = sampleSeriesValue(item.hoverPoints, pointerIndex)
-        if (value === null) return []
-        return [{ name: item.name, color: item.color, value, y: valueToY(value) }]
+        const value = allSamples.at(sampleIndex)?.values[item.name]
+        return Number.isFinite(value)
+          ? [{ name: item.name, color: item.color, value: value!, y: valueToY(value!) }]
+          : []
       })
       const pointOffset = sampleIndex - liveEndIndex
       setHover({ x: pointerX, timestamp: pointerTime, pointOffset, values })
     })
   }
-  useEffect(() => {
-    const now = performance.now()
-    if (now - lastLiveHoverUpdateRef.current < 32) return
-    lastLiveHoverUpdateRef.current = now
-    setHover((current) => {
-      if (!current || !series.length || !visibleSamples.length) return current
-      const pointerIndex = clamp(
-        startIndex + ((current.x - plotLeft) / plotWidth) * Math.max(1, xWindowPoints - 1),
-        0,
-        liveEndIndex
-      )
-      const sampleIndex = clamp(Math.floor(pointerIndex), 0, liveEndIndex)
-      const pointerTime = allSamples[sampleIndex]?.timestamp ?? 0
-      const values = series.flatMap<HoverValue>((item) => {
-        const value = sampleSeriesValue(item.hoverPoints, pointerIndex)
-        if (value === null) return []
-        return [{ name: item.name, color: item.color, value, y: valueToY(value) }]
-      })
-      const pointOffset = sampleIndex - liveEndIndex
-      return { ...current, timestamp: pointerTime, pointOffset, values }
-    })
-  }, [allSamples, liveEndIndex, series, startIndex, valueToY, visibleSamples.length, xWindowPoints])
-
   const beginXRangeDrag = (
     event: React.PointerEvent<HTMLElement>,
     mode: XRangeDrag['mode']
@@ -1071,19 +1085,37 @@ export function PlotPanel({ entries, enabledPorts, embedded = false }: Props): R
 
   return (
     <section
-      className={`plot-panel ${embedded ? 'embedded' : ''} ${collapsed ? 'collapsed' : ''}`}
-      style={embedded ? { height: collapsed ? 58 : height } : undefined}
+      className={`plot-panel ${embedded ? 'embedded' : ''} ${collapsed ? 'collapsed' : ''} ${cursors ? 'measuring' : ''}`}
+      style={
+        embedded ? { height: collapsed ? 58 : cursors ? Math.max(460, height) : height } : undefined
+      }
     >
       <header className="plot-toolbar plot-toolbar-compact">
         <div className="plot-heading">
           <strong>实时曲线</strong>
           <span>
             {allSamples.length.toLocaleString()} 个采样点 · {series.length} 个通道 ·{' '}
-            {xWindowPoints.toLocaleString()} 点视窗 · {viewEndIndex === null ? '实时' : '历史'}
+            {xWindowPoints.toLocaleString()} 点视窗 ·{' '}
+            {paused ? '已冻结' : viewEndIndex === null ? '实时' : '历史'}
+            {store.programError && (
+              <span role="status" title={store.programError}>
+                {' '}
+                · 计算已停止，请检查计算通道设置
+              </span>
+            )}
           </span>
         </div>
         {!collapsed && (
           <div className="plot-side-controls" role="group" aria-label="曲线操作">
+            <button
+              aria-pressed={!!cursors}
+              className={cursors ? 'active' : ''}
+              disabled={!allSamples.length}
+              title="冻结当前波形，拖动 A / B 测量并统计区间"
+              onClick={beginMeasurement}
+            >
+              双游标
+            </button>
             <button
               className={`plot-live-button ${viewEndIndex === null ? 'is-live' : ''}`}
               title="回到实时视窗"
@@ -1092,10 +1124,7 @@ export function PlotPanel({ entries, enabledPorts, embedded = false }: Props): R
             >
               {viewEndIndex === null ? '实时' : '回到实时'}
             </button>
-            <button
-              title="按当前视窗数据执行一次 Y 轴自动缩放"
-              onClick={() => setManualYRange({ ...autoYRange })}
-            >
+            <button title="持续按当前视窗自动缩放 Y 轴" onClick={() => setManualYRange(null)}>
               Y 自动
             </button>
             <button
@@ -1103,7 +1132,15 @@ export function PlotPanel({ entries, enabledPorts, embedded = false }: Props): R
               aria-pressed={paused}
               title={paused ? '继续绘图' : '暂停绘图'}
               onClick={() => {
-                if (!paused) setFrozenEntries(entries)
+                if (!paused) setFrozenSamples(store.freeze())
+                else {
+                  if (measurementWindow.current !== null) {
+                    setXWindowPoints(measurementWindow.current)
+                    measurementWindow.current = null
+                  }
+                  setFrozenSamples(null)
+                  setCursors(null)
+                }
                 setPaused((value) => !value)
               }}
             >
@@ -1138,7 +1175,13 @@ export function PlotPanel({ entries, enabledPorts, embedded = false }: Props): R
               title="清空曲线"
               aria-label="清空曲线"
               onClick={() => {
-                setStartId(entries.at(-1)?.id || 0)
+                store.clear()
+                setFrozenSamples(null)
+                setPaused(false)
+                setCursors(null)
+                setViewEndIndex(null)
+                setHover(null)
+                setStartId((value) => value + 1)
                 setOpenPanel(null)
               }}
             >
@@ -1161,7 +1204,7 @@ export function PlotPanel({ entries, enabledPorts, embedded = false }: Props): R
                     onChange={(event) => {
                       const value = Math.min(
                         maxPlotPoints,
-                        Math.max(100, Number(event.target.value) || 1000)
+                        Math.max(100, Math.floor(Number(event.target.value) || 1000))
                       )
                       setPointLimit(value)
                       setXWindowPoints((current) => {
@@ -1174,7 +1217,147 @@ export function PlotPanel({ entries, enabledPorts, embedded = false }: Props): R
                   />
                 </label>
                 <small>最多保留 100,000 个采样点</small>
+                <span>X 轴</span>
+                <div className="mini-segment" role="group" aria-label="曲线 X 轴模式">
+                  <button
+                    className={xMode === 'points' ? 'active' : ''}
+                    aria-pressed={xMode === 'points'}
+                    onClick={() => {
+                      setXMode('points')
+                      setHover(null)
+                    }}
+                  >
+                    点序号
+                  </button>
+                  <button
+                    className={xMode === 'time' ? 'active' : ''}
+                    aria-pressed={xMode === 'time'}
+                    onClick={() => {
+                      setXMode('time')
+                      setHover(null)
+                    }}
+                  >
+                    时间
+                  </button>
+                </div>
+                <small>时间轴使用电脑接收时间，设备采样周期需以设备时间戳为准。</small>
+                <span>连线方式</span>
+                <div className="mini-segment" role="group" aria-label="曲线连线方式">
+                  <button
+                    className={lineMode === 'linear' ? 'active' : ''}
+                    aria-pressed={lineMode === 'linear'}
+                    onClick={() => setLineMode('linear')}
+                  >
+                    直线
+                  </button>
+                  <button
+                    className={lineMode === 'step' ? 'active' : ''}
+                    aria-pressed={lineMode === 'step'}
+                    onClick={() => setLineMode('step')}
+                  >
+                    阶梯
+                  </button>
+                </div>
+                <span>Y 轴自动范围</span>
+                <div className="mini-segment" role="group" aria-label="Y 轴自动范围">
+                  <button
+                    className={yAutoMode === 'full' ? 'active' : ''}
+                    aria-pressed={yAutoMode === 'full'}
+                    onClick={() => {
+                      setYAutoMode('full')
+                      setManualYRange(null)
+                    }}
+                  >
+                    完整峰值
+                  </button>
+                  <button
+                    className={yAutoMode === 'robust' ? 'active' : ''}
+                    aria-pressed={yAutoMode === 'robust'}
+                    onClick={() => {
+                      setYAutoMode('robust')
+                      setManualYRange(null)
+                    }}
+                  >
+                    抑制异常
+                  </button>
+                </div>
+                <small>
+                  抑制异常模式在样本充足时忽略两端各 1% 的值来确定范围；测量统计始终包含原始峰值。
+                </small>
                 <button onClick={() => setOpenPanel('colors')}>曲线配色</button>
+                <button onClick={() => setOpenPanel('program')}>计算通道</button>
+                {store.programError && <small role="alert">计算已停止：{store.programError}</small>}
+              </div>
+            </FloatingPanel>
+            <FloatingPanel
+              anchorRef={settingsButtonRef}
+              open={openPanel === 'program'}
+              onClose={closeFloatingPanel}
+            >
+              <div className="plot-program-editor" role="dialog" aria-label="曲线计算通道">
+                <strong>计算通道</strong>
+                <div className="mini-segment" role="group" aria-label="曲线数据处理模式">
+                  <button
+                    className={!programDraft.enabled ? 'active' : ''}
+                    onClick={() => setProgramDraft({ ...programDraft, enabled: false })}
+                  >
+                    普通模式
+                  </button>
+                  <button
+                    className={programDraft.enabled ? 'active' : ''}
+                    onClick={() => setProgramDraft({ ...programDraft, enabled: true })}
+                  >
+                    编程模式
+                  </button>
+                </div>
+                <small>
+                  对每个原始采样执行
+                  process(data)，返回与数据窗口相同格式的结果数组。原始通道保留，计算通道名称包含单位；合计最多
+                  8 个通道。可在图例隐藏原始 AD，单独查看 gf 量程。
+                </small>
+                {programDraft.enabled && (
+                  <ProgramCodeEditor
+                    aria-label="曲线计算程序"
+                    value={programDraft.source}
+                    onChange={(event) =>
+                      setProgramDraft({ ...programDraft, source: event.target.value })
+                    }
+                  />
+                )}
+                <small>
+                  程序按批处理全部采样，仅绘图降采样。超时或积压时停止计算并显示原始值。应用配置会清空旧曲线，避免混用不同公式的数据。
+                </small>
+                {(programSaveError || store.programError) && (
+                  <p role="alert">{programSaveError || store.programError}</p>
+                )}
+                <button
+                  disabled={programSaving}
+                  onClick={async () => {
+                    setProgramSaving(true)
+                    try {
+                      if (programDraft.enabled) {
+                        if (!programDraft.source.trim()) throw new Error('请输入计算程序')
+                        await compileProgramSource(programDraft.source)
+                      }
+                      localStorage.setItem('serialflow.plotProgram', JSON.stringify(programDraft))
+                      store.configureProgram(programDraft.enabled, programDraft.source)
+                      setPaused(false)
+                      setFrozenSamples(null)
+                      setCursors(null)
+                      setHover(null)
+                      setViewEndIndex(null)
+                      setStartId((value) => value + 1)
+                      setProgramSaveError('')
+                      setOpenPanel(null)
+                    } catch (cause) {
+                      setProgramSaveError(cause instanceof Error ? cause.message : String(cause))
+                    } finally {
+                      setProgramSaving(false)
+                    }
+                  }}
+                >
+                  {programSaving ? '正在应用…' : '保存并应用'}
+                </button>
               </div>
             </FloatingPanel>
             <FloatingPanel
@@ -1649,9 +1832,103 @@ export function PlotPanel({ entries, enabledPorts, embedded = false }: Props): R
                   height={plotHeight}
                   fill="transparent"
                   className="plot-hover-area"
-                  onPointerMove={handlePlotHover}
+                  onPointerDown={(event) => {
+                    if (cursors) {
+                      moveMeasurement(event, activeCursor)
+                      setActiveCursor(activeCursor === 'a' ? 'b' : 'a')
+                    }
+                  }}
+                  onPointerMove={cursors ? undefined : handlePlotHover}
                   onPointerLeave={clearPlotHover}
                 />
+                {cursors && (
+                  <g className="plot-measurement-selection" pointerEvents="none">
+                    <rect
+                      x={clamp(
+                        Math.min(indexToX(cursors.a), indexToX(cursors.b)),
+                        plotLeft,
+                        plotRight
+                      )}
+                      y={plotTop}
+                      width={Math.max(
+                        0,
+                        clamp(
+                          Math.max(indexToX(cursors.a), indexToX(cursors.b)),
+                          plotLeft,
+                          plotRight
+                        ) -
+                          clamp(
+                            Math.min(indexToX(cursors.a), indexToX(cursors.b)),
+                            plotLeft,
+                            plotRight
+                          )
+                      )}
+                      height={plotHeight}
+                    />
+                  </g>
+                )}
+                {cursors &&
+                  (['a', 'b'] as const).map((which) => {
+                    const index = cursors[which]
+                    if (index < startIndex || index > endIndex) return null
+                    const x = indexToX(index)
+                    return (
+                      <g key={which} className={`plot-measurement-cursor cursor-${which}`}>
+                        <line x1={x} x2={x} y1={plotTop} y2={plotBottom} />
+                        <text
+                          x={x + (which === 'a' ? -8 : 8)}
+                          y={plotTop + 18}
+                          textAnchor={which === 'a' ? 'end' : 'start'}
+                        >
+                          {which.toUpperCase()}
+                        </text>
+                        <rect
+                          x={x - 9}
+                          y={plotTop}
+                          width={18}
+                          height={plotHeight - 12}
+                          fill="transparent"
+                          role="slider"
+                          tabIndex={0}
+                          aria-label={`测量游标 ${which.toUpperCase()}`}
+                          aria-valuemin={1}
+                          aria-valuemax={allSamples.length}
+                          aria-valuenow={index + 1}
+                          onPointerDown={(event) => {
+                            event.preventDefault()
+                            event.stopPropagation()
+                            setActiveCursor(which)
+                            cursorDrag.current = which
+                            event.currentTarget.setPointerCapture(event.pointerId)
+                          }}
+                          onPointerMove={(event) => {
+                            if (cursorDrag.current === which) moveMeasurement(event, which)
+                          }}
+                          onPointerUp={(event) => {
+                            if (event.currentTarget.hasPointerCapture(event.pointerId))
+                              event.currentTarget.releasePointerCapture(event.pointerId)
+                            cursorDrag.current = null
+                          }}
+                          onPointerCancel={() => {
+                            cursorDrag.current = null
+                          }}
+                          onKeyDown={(event) => {
+                            if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+                              event.preventDefault()
+                              changeCursor(
+                                which,
+                                event.key === 'Home'
+                                  ? 0
+                                  : event.key === 'End'
+                                    ? liveEndIndex
+                                    : index + (event.key === 'ArrowLeft' ? -1 : 1)
+                              )
+                            }
+                          }}
+                        />
+                      </g>
+                    )
+                  })}
                 <rect
                   x={plotLeft}
                   y={plotBottom - 10}
@@ -1718,7 +1995,9 @@ export function PlotPanel({ entries, enabledPorts, embedded = false }: Props): R
                           : 'translateX(-50%)'
                   }}
                 >
-                  {tick.pointOffset}
+                  {xMode === 'time'
+                    ? formatTime(timeStart + ((tick.x - plotLeft) / plotWidth) * timeSpan, timeSpan)
+                    : tick.pointOffset}
                 </span>
               ))}
               {yTicks.map((tick) => (
@@ -1738,7 +2017,13 @@ export function PlotPanel({ entries, enabledPorts, embedded = false }: Props): R
                   className="plot-axis-cursor-label x"
                   style={{ left: `${(axisCursor.x / 1000) * 100}%` }}
                 >
-                  {axisCursor.pointOffset}
+                  {xMode === 'time'
+                    ? formatTime(
+                        allSamples.at(axisCursor.pointOffset + liveEndIndex)?.timestamp ??
+                          timeStart,
+                        timeSpan
+                      )
+                    : axisCursor.pointOffset}
                 </span>
               )}
               {axisCursor?.axis === 'y' && (
@@ -1794,7 +2079,7 @@ export function PlotPanel({ entries, enabledPorts, embedded = false }: Props): R
           <div className="plot-x-range-meta">
             <span>视窗 {xWindowPoints.toLocaleString()} 点</span>
             <span>
-              {visibleSamples.length.toLocaleString()} / {pointLimit.toLocaleString()} 点
+              {visibleCount.toLocaleString()} / {pointLimit.toLocaleString()} 点
             </span>
             <button disabled={viewEndIndex === null} onClick={() => setViewEndIndex(null)}>
               {viewEndIndex === null ? '实时' : '回到实时'}
@@ -1837,6 +2122,97 @@ export function PlotPanel({ entries, enabledPorts, embedded = false }: Props): R
             />
           </div>
         </div>
+      )}
+      {!collapsed && cursors && measurement && (
+        <section className="plot-measurements" aria-label="双游标区间统计">
+          <div className="plot-measurements-controls">
+            <strong>区间测量</strong>
+            {(['a', 'b'] as const).map((which) => (
+              <label key={which}>
+                <button
+                  aria-pressed={activeCursor === which}
+                  onClick={() => setActiveCursor(which)}
+                >
+                  {which.toUpperCase()}
+                </button>
+                <input
+                  type="number"
+                  aria-label={`游标 ${which.toUpperCase()} 采样点`}
+                  min={1}
+                  max={allSamples.length}
+                  value={cursors[which] + 1}
+                  onChange={(event) => changeCursor(which, Number(event.target.value) - 1)}
+                />
+              </label>
+            ))}
+            <span>
+              Δt（B−A）
+              {formatAxisValue(
+                (allSamples.at(cursors.b)?.timestamp ?? 0) -
+                  (allSamples.at(cursors.a)?.timestamp ?? 0)
+              )}{' '}
+              ms
+            </span>
+            <span>间隔 {Math.abs(cursors.b - cursors.a)} 点</span>
+            <button
+              onClick={() => {
+                setCursors(null)
+                setPaused(false)
+                setFrozenSamples(null)
+                if (measurementWindow.current !== null) {
+                  setXWindowPoints(measurementWindow.current)
+                  measurementWindow.current = null
+                }
+                setViewEndIndex(null)
+              }}
+            >
+              结束测量并继续
+            </button>
+          </div>
+          <small>
+            波形已冻结，接收继续。拖动游标或选择 A / B
+            后点击曲线；统计包含两端，平均值按有效采样点计算。
+          </small>
+          <div className="plot-measurements-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>通道</th>
+                  <th>A</th>
+                  <th>B</th>
+                  <th>Δ值（B−A）</th>
+                  <th>有效点数</th>
+                  <th>最小值</th>
+                  <th>最大值</th>
+                  <th>平均值</th>
+                  <th>峰峰值</th>
+                </tr>
+              </thead>
+              <tbody>
+                {activeChannelNames.map((name) => {
+                  const stats = measurement[name]
+                  const show = (value: number | null): string =>
+                    value === null || !Number.isFinite(value) ? '—' : formatAxisValue(value)
+                  return (
+                    <tr key={name} data-channel={name}>
+                      <th>{name}</th>
+                      <td>{show(stats.a)}</td>
+                      <td>{show(stats.b)}</td>
+                      <td>
+                        {show(stats.a !== null && stats.b !== null ? stats.b - stats.a : null)}
+                      </td>
+                      <td>{stats.count}</td>
+                      <td>{show(stats.count ? stats.min : null)}</td>
+                      <td>{show(stats.count ? stats.max : null)}</td>
+                      <td>{show(stats.count ? stats.mean : null)}</td>
+                      <td>{show(stats.count ? stats.peakToPeak : null)}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
       )}
       {embedded && !collapsed && (
         <div

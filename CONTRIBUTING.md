@@ -35,6 +35,8 @@ bun run postinstall
 
 ## 项目结构
 
+实时曲线使用独立的 `plot-store.ts` 环形缓存，`plot-data.ts` 提供原始区间统计和按像素保留峰谷的降采样，计算通道在 QuickJS Worker 中批量执行。修改曲线时运行 `bun test tests/plot-data.test.ts`，生产构建后运行 `bun run test:ui:plot` 和 `bun run test:ui:serial`。曲线 UI 测试覆盖游标交叉/重合、冻结/恢复、日志独立性、计算通道以及 100,000 点 × 8 通道，并将截图和延迟指标写入 `.tmp/ui-smoke/`。这些测试使用模拟数据，不代表硬件采样精度验收。
+
 数据窗口的字段解析位于 `src/renderer/src/data-window-parser.ts`，编程换算位于
 `src/renderer/src/data-window-program.ts`，复用 QuickJS Worker 的内存和执行时间限制。
 修改换算行为时运行 `bun test tests/data-window-parser.test.ts tests/data-window-program.test.ts`，
