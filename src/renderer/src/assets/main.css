@@ -7932,43 +7932,370 @@ button.clear-action-button .clear-action-icon {
 }
 
 body.plot-measurement-body {
+  min-width: 0;
   overflow: auto;
 }
 .plot-measurement-window {
   height: 100vh;
-  padding: 16px;
+  min-height: 340px;
+  padding: 18px 20px 12px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
+  background: linear-gradient(145deg, #f1f6ff 0, #f6f8fc 45%, #f8fafc 100%);
+  color: var(--text);
+  font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  font-size: 13px;
 }
 .plot-measurement-heading {
+  height: auto;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  backdrop-filter: none;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
+}
+.measurement-title,
+.measurement-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.measurement-title-icon {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #d5e3ff;
+  border-radius: 12px;
+  background: #e8f0ff;
+  color: var(--primary);
+}
+.measurement-title h1 {
+  margin: 0 0 5px;
+  font-size: 18px;
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+}
+.measurement-title > div > span {
+  color: #65758c;
+  font-size: 11px;
+}
+.measurement-status {
+  margin-left: 8px;
+  color: #087f70;
 }
 .plot-measurement-heading button {
-  padding: 6px 12px;
-  border: 1px solid var(--border);
-  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 11px;
+  border: 1px solid #d8e2ef;
+  border-radius: 7px;
   background: #fff;
+  color: #53657b;
+  font-size: 12px;
+  white-space: nowrap;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
 }
 .plot-measurement-heading button[aria-pressed='true'] {
   color: var(--primary);
-  border-color: var(--primary);
+  border-color: #a8c7ff;
   background: #eff6ff;
+}
+.plot-measurement-heading .measurement-resume {
+  color: #fff;
+  border-color: var(--primary);
+  background: var(--primary);
+  box-shadow: 0 3px 7px #2563eb1c;
+}
+.plot-measurement-heading button:hover:not(:disabled) {
+  background: #eaf1fb;
+  border-color: #a8bdd9;
+}
+.plot-measurement-heading .measurement-resume:hover {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+}
+.plot-measurement-window button:focus-visible,
+.plot-measurement-window input:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 3px;
+}
+.measurement-summary {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.15fr 1fr;
+  flex: none;
+  border: 1px solid #dce5f1;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 3px 12px #1f406006;
+  overflow: hidden;
+}
+.measurement-summary > div {
+  min-width: 0;
+  padding: 13px 18px 11px;
+  border-right: 1px solid #e8edf5;
+}
+.measurement-summary > div:last-child {
+  border-right: 0;
+}
+.measurement-summary .cursor-a {
+  background: linear-gradient(110deg, #eff5ff, #fff);
+}
+.measurement-summary .cursor-b {
+  background: linear-gradient(110deg, #fff8ee, #fff);
+}
+.measurement-summary-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 22px;
+  color: #596b82;
+  font-size: 11px;
+}
+.measurement-summary-label > span:not(.measurement-current) {
+  margin-left: auto;
+  font-size: 10px;
+  color: #77859a;
+}
+.measurement-summary-label button {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid #c9dcff;
+  border-radius: 6px;
+  color: #2563eb;
+  background: #e8f0ff;
+  font:
+    700 12px/1 'Segoe UI',
+    sans-serif;
+}
+.measurement-summary .cursor-b button {
+  color: #a45b08;
+  background: #fff0d9;
+  border-color: #f3d4a9;
+}
+.measurement-summary-label button[aria-pressed='true'] {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+}
+.measurement-summary .cursor-b button[aria-pressed='true'] {
+  background: #b9670b;
+  border-color: #b9670b;
+}
+.measurement-current {
+  color: #65758c;
+  margin-left: auto;
+  font-size: 10px;
+}
+.measurement-summary-value {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 6px;
+}
+.measurement-summary-value > span {
+  flex: none;
+  color: #66768b;
+  font-size: 11px;
+}
+.measurement-summary-value input,
+.measurement-summary-value strong {
+  min-width: 0;
+  color: #20314a;
+  font:
+    600 25px/1.2 'Segoe UI',
+    'Microsoft YaHei',
+    sans-serif;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.5px;
+}
+.measurement-summary-value input {
+  width: 100%;
+  padding: 0 3px;
+  border: 1px solid transparent;
+  border-bottom-color: #ceddf3;
+  border-radius: 4px;
+  background: transparent;
+  color: #245cbd;
+}
+.cursor-b .measurement-summary-value input {
+  color: #9a570e;
+  border-bottom-color: #ecd7b9;
+}
+.measurement-summary-value input:hover,
+.measurement-summary-value input:focus {
+  background: #fff;
+  border-color: #a7c5f8;
+}
+.measurement-summary-value strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .plot-measurement-window .plot-measurements {
   flex: 1;
-  min-height: 0;
+  min-height: 110px;
   display: flex;
   flex-direction: column;
+  padding: 0;
+  border: 1px solid #dce5f1;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 3px 12px #1f406006;
+  overflow: hidden;
+}
+.measurement-table-heading,
+.measurement-table-heading > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.measurement-table-heading {
+  flex: none;
+  min-height: 43px;
+  justify-content: space-between;
+  padding: 0 16px;
+  border-bottom: 1px solid #e9eef5;
+  color: #52677f;
+}
+.measurement-table-heading h2 {
+  font-size: 12px;
+  font-weight: 650;
+  color: #30425a;
+  margin: 0;
+}
+.measurement-table-heading > span {
+  font-size: 11px;
+  color: #708096;
+}
+.measurement-count {
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: #f0f4fa;
+  color: #60738c;
+  font-size: 10px;
 }
 .plot-measurement-window .plot-measurements-table {
   flex: 1;
+  min-height: 0;
   max-height: none;
 }
 .plot-measurement-window thead {
   position: sticky;
   top: 0;
-  background: #f8fafc;
+  z-index: 1;
+  background: #f5f8fc;
+}
+.plot-measurement-window .plot-measurements th,
+.plot-measurement-window .plot-measurements td {
+  padding: 11px 14px;
+  border-bottom: 1px solid #edf1f7;
+  font-size: 12px;
+}
+.plot-measurement-window .plot-measurements thead th {
+  padding-top: 9px;
+  padding-bottom: 9px;
+  color: #60738c;
+  font-size: 11px;
+  font-weight: 500;
+}
+.plot-measurement-window .plot-measurements tbody th {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #30425a;
+  font-weight: 650;
+}
+.plot-measurement-window .plot-measurements td {
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  color: #3f5169;
+}
+.plot-measurement-window .plot-measurements tr > :nth-child(2) {
+  color: #2563eb;
+}
+.plot-measurement-window .plot-measurements tr > :nth-child(3) {
+  color: #a65c0a;
+}
+.plot-measurement-window .plot-measurements tbody td:nth-child(8) {
+  color: #174caa;
+  font-weight: 700;
+  background: #f5f9ff;
+}
+.plot-measurement-window .plot-measurements tbody tr:nth-child(even) {
+  background: #fafcfe;
+}
+.plot-measurement-window .plot-measurements tbody tr:hover {
+  background: #f0f5fd;
+}
+.measurement-hint {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  flex: none;
+  padding: 0 2px;
+  height: auto;
+  min-height: 18px;
+  border: 0;
+  background: transparent;
+  color: #697b91;
+  font-size: 11px;
+  line-height: 18px;
+}
+.measurement-hint svg {
+  flex: none;
+}
+.measurement-hint > span:last-child {
+  margin-left: auto;
+  color: #8591a2;
+}
+.measurement-empty {
+  padding: 24px;
+  color: #687b92;
+  text-align: center;
+}
+.plot-measurement-window p[role='alert'] {
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid #fecaca;
+  border-radius: 7px;
+  background: #fff1f2;
+  color: #a82037;
+}
+@media (max-width: 760px) {
+  .plot-measurement-window {
+    padding: 14px;
+    gap: 12px;
+  }
+  .measurement-title-icon {
+    display: none;
+  }
+  .measurement-summary > div {
+    padding: 10px 12px;
+  }
+  .measurement-summary-value input,
+  .measurement-summary-value strong {
+    font-size: 20px;
+  }
+  .plot-measurement-window .plot-measurements th,
+  .plot-measurement-window .plot-measurements td {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+  .measurement-hint > span:last-child {
+    display: none;
+  }
 }

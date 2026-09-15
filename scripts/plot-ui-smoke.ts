@@ -424,6 +424,36 @@ app.whenReady().then(async () => {
       await input('游标 A 采样点', 1 + i * 1000)
       latencies.push(Date.now() - start)
     }
+    const measurementView = measurementWindow()!
+    measurementView.showInactive()
+    measurementView.setSize(1000, 540)
+    await until(() => measureRun('window.innerHeight > 470'), 'expanded measurement layout')
+    await measureRun(
+      'new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))'
+    )
+    fs.writeFileSync(
+      path.join(root, '.tmp/ui-smoke/plot-measurement-styled.png'),
+      (await measurementView.webContents.capturePage()).toPNG()
+    )
+    measurementView.setSize(680, 420)
+    await until(() => measureRun('window.innerWidth < 700'), 'narrow measurement layout')
+    assert(
+      await measureRun('document.documentElement.scrollWidth <= window.innerWidth'),
+      'measurement window must fit narrow widths'
+    )
+    assert(
+      await measureRun(
+        `Array.from(document.querySelectorAll('.measurement-actions button, .measurement-summary input')).every(el => {const r=el.getBoundingClientRect();return r.width>0 && r.left>=0 && r.right<=window.innerWidth})`
+      ),
+      'measurement controls remain visible'
+    )
+    await measureRun(
+      'new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))'
+    )
+    fs.writeFileSync(
+      path.join(root, '.tmp/ui-smoke/plot-measurement-narrow.png'),
+      (await measurementView.webContents.capturePage()).toPNG()
+    )
     const metrics = await run(
       `(() => {clearInterval(window.__timer); const lags=window.__lags.sort((a,b)=>a-b); return {lagSamples:lags.length,lagP50:lags[Math.floor(lags.length*.5)],lagP95:lags[Math.floor(lags.length*.95)],lagMax:Math.max(...lags),header:document.querySelector('.plot-heading').textContent} })()`
     )
