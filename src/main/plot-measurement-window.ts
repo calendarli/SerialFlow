@@ -30,8 +30,8 @@ export function registerPlotMeasurementWindow(getMain: () => BrowserWindow | nul
       return
     }
     const current = new BrowserWindow({
-      width: 1000,
-      height: 400,
+      width: 680,
+      height: 656,
       minWidth: 680,
       minHeight: 260,
       title: '区间测量 · SerialFlow',

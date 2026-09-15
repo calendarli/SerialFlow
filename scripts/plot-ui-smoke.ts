@@ -181,6 +181,11 @@ app.whenReady().then(async () => {
     )
     await click('双游标')
     await measureRun('true')
+    assert.deepEqual(
+      measurementWindow()!.getSize(),
+      [680, 656],
+      'measurement window uses the compact tall default size'
+    )
     assert.equal(await run('Boolean(document.querySelector(".plot-measurements"))'), false)
     assert.equal(measurementWindow()!.isAlwaysOnTop(), false)
     await measureRun(
