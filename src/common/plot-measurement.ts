@@ -3,12 +3,14 @@ export type PlotMeasurement = {
   b: number
   total: number
   active: 'a' | 'b'
+  receivePaused: boolean
   deltaTime: string
   rows: string[][]
 }
 
 export type PlotMeasurementCommand =
   | { type: 'end' }
+  | { type: 'receive'; paused: boolean }
   | { type: 'select'; cursor: 'a' | 'b' }
   | { type: 'move'; cursor: 'a' | 'b'; index: number }
 
@@ -21,6 +23,7 @@ export function validMeasurement(value: unknown): value is PlotMeasurement {
     v.total <= 100000 &&
     [v.a, v.b].every((n) => Number.isSafeInteger(n) && n >= 1 && n <= v.total) &&
     (v.active === 'a' || v.active === 'b') &&
+    typeof v.receivePaused === 'boolean' &&
     typeof v.deltaTime === 'string' &&
     v.deltaTime.length <= 100 &&
     Array.isArray(v.rows) &&
@@ -39,6 +42,7 @@ export function validMeasurementCommand(value: unknown): value is PlotMeasuremen
   const v = value as PlotMeasurementCommand
   return (
     v.type === 'end' ||
+    (v.type === 'receive' && typeof v.paused === 'boolean') ||
     ((v.type === 'select' || v.type === 'move') &&
       (v.cursor === 'a' || v.cursor === 'b') &&
       (v.type === 'select' || (Number.isSafeInteger(v.index) && v.index >= 1 && v.index <= 100000)))

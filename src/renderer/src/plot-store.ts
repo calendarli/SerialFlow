@@ -12,6 +12,12 @@ export class PlotStore {
   private listeners = new Set<() => void>()
   program = { enabled: false, source: '' }
   programError = ''
+  private receivingPaused = false
+  setReceivingPaused(paused: boolean): void {
+    if (this.receivingPaused === paused) return
+    this.receivingPaused = paused
+    if (!paused) for (const port of this.ports) this.breaks.add(port)
+  }
   constructor(
     private runtime: Pick<PlotProgramRuntime, 'run' | 'dispose'> = new PlotProgramRuntime()
   ) {}
@@ -47,7 +53,7 @@ export class PlotStore {
     }
   }
   append(port: string, text: string, timestamp = Date.now()): void {
-    if (!this.ports.includes(port)) return
+    if (this.receivingPaused || !this.ports.includes(port)) return
     const values = parsePlotValues(text)
     if (!values) return
     if (!this.program.enabled || this.programError) {

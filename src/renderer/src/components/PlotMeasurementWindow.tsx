@@ -1,5 +1,15 @@
 import { useEffect, useState } from 'react'
-import { Activity, ArrowLeftRight, Clock3, Info, Pin, PinOff, Play, Ruler } from 'lucide-react'
+import {
+  Activity,
+  ArrowLeftRight,
+  Clock3,
+  Info,
+  Pin,
+  PinOff,
+  Play,
+  Pause,
+  Ruler
+} from 'lucide-react'
 import type { PlotMeasurement, PlotMeasurementCommand } from '@common/plot-measurement'
 
 export function PlotMeasurementWindow(): React.JSX.Element {
@@ -49,7 +59,10 @@ export function PlotMeasurementWindow(): React.JSX.Element {
           <div>
             <h1>区间测量</h1>
             <span>
-              双游标分析 <span className="measurement-status">波形已冻结 · 接收继续</span>
+              双游标分析{' '}
+              <span className="measurement-status">
+                {data?.receivePaused ? '接收已暂停' : '正在接收'}
+              </span>
             </span>
           </div>
         </div>
@@ -78,9 +91,17 @@ export function PlotMeasurementWindow(): React.JSX.Element {
             {pinned ? '取消置顶' : '启用置顶'}
           </button>
           {data && (
-            <button className="measurement-resume" onClick={() => command({ type: 'end' })}>
-              <Play size={14} aria-hidden="true" />
-              结束测量并继续
+            <button
+              className="measurement-resume"
+              aria-pressed={data.receivePaused}
+              onClick={() => command({ type: 'receive', paused: !data.receivePaused })}
+            >
+              {data.receivePaused ? (
+                <Play size={14} aria-hidden="true" />
+              ) : (
+                <Pause size={14} aria-hidden="true" />
+              )}
+              {data.receivePaused ? '继续接收' : '暂停接收'}
             </button>
           )}
         </div>

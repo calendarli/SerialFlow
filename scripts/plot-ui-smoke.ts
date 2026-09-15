@@ -150,11 +150,17 @@ app.whenReady().then(async () => {
       return child.webContents.executeJavaScript(source)
     }
     const click = async (text: string, selector = '.plot-panel button') => {
-      if (text === '结束测量并继续') {
+      if (text === '暂停接收' || text === '继续接收') {
         await measureRun(
-          `Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='结束测量并继续').click()`
+          `Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='${text}').click()`
         )
-        await until(() => !measurementWindow(), 'measurement window closes')
+        await until(
+          () =>
+            measureRun(
+              `document.querySelector('.measurement-resume').textContent === '${text === '暂停接收' ? '继续接收' : '暂停接收'}'`
+            ),
+          'receive button state synchronized'
+        )
         return
       }
       return run(
@@ -339,6 +345,21 @@ app.whenReady().then(async () => {
       `document.querySelector('[aria-label="测量游标 B"]').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}))`
     )
     await until(async () => (await row())[2] === '50', 'keyboard edit synchronized')
+    await click('暂停接收')
+    assert(
+      await run(
+        `Array.from(document.querySelectorAll('.receiver button')).some(b=>b.textContent.includes('暂停接收') && b.getAttribute('aria-pressed')==='true')`
+      ),
+      'main receive pause state synchronized'
+    )
+    send(['AD=999'])
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    assert(
+      !(await run(`document.querySelector('.receiver').textContent.includes('AD=999')`)),
+      'paused frames are excluded from receive display'
+    )
+    assert(measurementWindow(), 'pausing keeps the measurement window open')
+    await click('继续接收')
     send(['AD=60'])
     await new Promise((resolve) => setTimeout(resolve, 100))
     assert.equal((await row())[2], '50', 'Measurement must remain frozen while live data arrives')
@@ -357,7 +378,8 @@ app.whenReady().then(async () => {
       path.join(root, '.tmp/ui-smoke/plot-measurement-window.png'),
       (await measurementWindow()!.webContents.capturePage()).toPNG()
     )
-    await click('结束测量并继续')
+    measurementWindow()!.close()
+    await until(() => !measurementWindow(), 'measurement window closes')
     await until(
       () => run('document.querySelector(".plot-heading").textContent.includes("6 个采样点")'),
       'resume sees new sample'

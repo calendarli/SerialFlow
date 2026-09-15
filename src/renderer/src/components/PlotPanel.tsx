@@ -9,7 +9,13 @@ import { ProgramCodeEditor } from './ProgramCodeEditor'
 import { defaultPlotProgram } from '../plot-program'
 import { compileProgramSource } from '../scripts/program-source'
 
-type Props = { store: PlotStore; enabledPorts: string[]; embedded?: boolean }
+type Props = {
+  store: PlotStore
+  enabledPorts: string[]
+  embedded?: boolean
+  receivePaused: boolean
+  onReceivePausedChange: (paused: boolean) => void
+}
 type PlotColors = { background: string; grid: string; series: string[] }
 type YRange = { min: number; max: number }
 type HoverValue = { name: string; color: string; value: number; y: number }
@@ -194,7 +200,13 @@ function formatAxisValue(value: number): string {
   return Number(value.toPrecision(5)).toLocaleString()
 }
 
-export function PlotPanel({ store, enabledPorts, embedded = false }: Props): React.JSX.Element {
+export function PlotPanel({
+  store,
+  enabledPorts,
+  embedded = false,
+  receivePaused,
+  onReceivePausedChange
+}: Props): React.JSX.Element {
   const [paused, setPaused] = useState(false)
   const [frozenSamples, setFrozenSamples] = useState<PlotBuffer<Sample> | null>(null)
   const [collapsed, setCollapsed] = useState(
@@ -483,10 +495,11 @@ export function PlotPanel({ store, enabledPorts, embedded = false }: Props): Rea
     () =>
       window.api.onPlotMeasurementCommand((command) => {
         if (command.type === 'end') endMeasurement()
+        else if (command.type === 'receive') onReceivePausedChange(command.paused)
         else if (command.type === 'select') setActiveCursor(command.cursor)
         else changeCursor(command.cursor, command.index - 1)
       }),
-    [endMeasurement, changeCursor]
+    [endMeasurement, changeCursor, onReceivePausedChange]
   )
   useEffect(() => {
     const show = (value: number | null): string =>
@@ -499,6 +512,7 @@ export function PlotPanel({ store, enabledPorts, embedded = false }: Props): Rea
               b: cursors.b + 1,
               total: allSamples.length,
               active: activeCursor,
+              receivePaused,
               deltaTime: formatAxisValue(
                 (allSamples.at(cursors.b)?.timestamp ?? 0) -
                   (allSamples.at(cursors.a)?.timestamp ?? 0)
@@ -524,7 +538,15 @@ export function PlotPanel({ store, enabledPorts, embedded = false }: Props): Rea
         setMeasurementError(String(error))
         endMeasurement()
       })
-  }, [cursors, measurement, activeCursor, activeChannelNames, allSamples, endMeasurement])
+  }, [
+    cursors,
+    measurement,
+    activeCursor,
+    activeChannelNames,
+    allSamples,
+    endMeasurement,
+    receivePaused
+  ])
   useEffect(
     () => () => {
       void window.api.syncPlotMeasurement(null).catch(() => {})

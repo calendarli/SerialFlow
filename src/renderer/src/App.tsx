@@ -465,7 +465,16 @@ function App(): React.JSX.Element {
   const [connectionBusy, setConnectionBusy] = useState(false)
   const [rxHex, setRxHex] = useState(() => loadBooleanSetting(receiveHexKey, false))
   const [timestamp, setTimestamp] = useState(() => loadBooleanSetting(timestampKey, true))
-  const [paused, setPaused] = useState(false)
+  const [paused, setPausedState] = useState(false)
+  const receivePausedRef = useRef(false)
+  const setPaused = useCallback(
+    (value: boolean): void => {
+      receivePausedRef.current = value
+      plotStore.setReceivingPaused(value)
+      setPausedState(value)
+    },
+    [plotStore]
+  )
   const [autoPauseEnabled, setAutoPauseEnabled] = useState(() =>
     loadBooleanSetting(autoPauseEnabledKey, false)
   )
@@ -971,7 +980,15 @@ function App(): React.JSX.Element {
         interactionDisplay.encoding
       )
       const rendered = rxHex ? `${chunkHex} ` : displayText
-      queueInteraction('rx', sourcePort, rendered, bytes.length, !paused, text, chunkHex)
+      queueInteraction(
+        'rx',
+        sourcePort,
+        rendered,
+        bytes.length,
+        !receivePausedRef.current,
+        text,
+        chunkHex
+      )
       if (shouldAutoPause) {
         pauseLineBuffers.current.set(sourcePort, '')
         pauseHexBuffers.current.set(sourcePort, '')
@@ -1038,7 +1055,8 @@ function App(): React.JSX.Element {
     send,
     sendPort,
     showError,
-    plotStore
+    plotStore,
+    setPaused
   ])
 
   useEffect(() => {
@@ -1551,7 +1569,13 @@ function App(): React.JSX.Element {
             style={{ gridTemplateRows: `minmax(200px, 1fr) ${sendPanelHeight}px` }}
           >
             <div className="interaction-stack">
-              <PlotPanel store={plotStore} enabledPorts={plotPorts} embedded />
+              <PlotPanel
+                store={plotStore}
+                enabledPorts={plotPorts}
+                receivePaused={paused}
+                onReceivePausedChange={setPaused}
+                embedded
+              />
               <ReceivePanel
                 entries={interactionCache.entries}
                 rxHex={rxHex}
