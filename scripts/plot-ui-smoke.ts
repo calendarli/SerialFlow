@@ -202,6 +202,45 @@ app.whenReady().then(async () => {
     await run('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
     await new Promise((resolve) => setTimeout(resolve, 80))
     await input('游标 B 采样点', 5)
+    const labelSizes = () =>
+      run(`Array.from(document.querySelectorAll('.plot-cursor-label')).map(label => {
+      const r = label.getBoundingClientRect(); return {width:r.width,height:r.height}
+    })`)
+    const originalLabels = await labelSizes()
+    assert.equal(originalLabels.length, 2)
+    const handle = await run(
+      `(() => { const r=document.querySelector('.plot-panel-resizer').getBoundingClientRect(); return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+2)} })()`
+    )
+    window.webContents.sendInputEvent({ type: 'mouseMove', ...handle })
+    window.webContents.sendInputEvent({
+      type: 'mouseDown',
+      ...handle,
+      button: 'left',
+      clickCount: 1
+    })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    window.webContents.sendInputEvent({ type: 'mouseMove', x: handle.x, y: 100 })
+    window.webContents.sendInputEvent({
+      type: 'mouseUp',
+      x: handle.x,
+      y: 100,
+      button: 'left',
+      clickCount: 1
+    })
+    await until(async () => (await layout()).height <= 161, 'minimum plot height')
+    assert.deepEqual(
+      await labelSizes(),
+      originalLabels,
+      'cursor label dimensions must not scale with plot height'
+    )
+    fs.writeFileSync(
+      path.join(root, '.tmp/ui-smoke/plot-short-labels.png'),
+      (await window.webContents.capturePage()).toPNG()
+    )
+    await run(
+      `document.querySelector('.plot-panel-resizer').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}))`
+    )
+    await until(centered, 'restore plot after label test')
     assert.deepEqual(await row(), ['AD', '10', '50', '40', '5', '10', '50', '30', '40'])
     await click('设置')
     await click('时间', '[aria-label="曲线 X 轴模式"] button')

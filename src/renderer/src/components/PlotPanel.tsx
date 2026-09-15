@@ -1955,13 +1955,6 @@ export function PlotPanel({ store, enabledPorts, embedded = false }: Props): Rea
                     return (
                       <g key={which} className={`plot-measurement-cursor cursor-${which}`}>
                         <line x1={x} x2={x} y1={plotTop} y2={plotBottom} />
-                        <text
-                          x={x + (which === 'a' ? -8 : 8)}
-                          y={plotTop + 18}
-                          textAnchor={which === 'a' ? 'end' : 'start'}
-                        >
-                          {which.toUpperCase()}
-                        </text>
                         <rect
                           x={x - 9}
                           y={plotTop}
@@ -2061,6 +2054,29 @@ export function PlotPanel({ store, enabledPorts, embedded = false }: Props): Rea
           )}
           {series.length > 0 && (
             <div className="plot-axis-label-layer" aria-hidden="true">
+              {cursors &&
+                (['a', 'b'] as const).map((which) => {
+                  const index = cursors[which]
+                  if (index < startIndex || index > endIndex) return null
+                  return (
+                    <span
+                      key={which}
+                      className={`plot-cursor-label cursor-${which}`}
+                      style={{
+                        left: `${(indexToX(index) / 1000) * 100}%`,
+                        top: `calc(${(plotTop / 420) * 100}% + 4px)`,
+                        transform:
+                          indexToX(index) < plotLeft + 30
+                            ? 'translateX(8px)'
+                            : indexToX(index) > plotRight - 30
+                              ? 'translateX(calc(-100% - 8px))'
+                              : undefined
+                      }}
+                    >
+                      {which.toUpperCase()}
+                    </span>
+                  )
+                })}
               {xTicks.map((tick, index) => (
                 <span
                   key={`x-${tick.pointOffset}`}

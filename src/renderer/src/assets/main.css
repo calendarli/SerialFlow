@@ -6188,11 +6188,18 @@ footer > span:first-child {
   vector-effect: non-scaling-stroke;
   stroke-dasharray: 5 3;
 }
-.plot-measurement-cursor text {
-  fill: currentColor;
-  font-weight: 700;
-  font-size: 18px;
+.plot-cursor-label {
+  position: absolute;
+  color: #2563eb;
+  font:
+    700 18px/20px Arial,
+    sans-serif;
+  transform: translateX(calc(-100% - 8px));
   pointer-events: none;
+}
+.plot-cursor-label.cursor-b {
+  color: #d97706;
+  transform: translateX(8px);
 }
 .plot-measurement-cursor rect {
   cursor: ew-resize;
