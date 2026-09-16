@@ -2,7 +2,7 @@ import { writeSerialData } from './serial-write'
 import { registerPlotMeasurementWindow } from './plot-measurement-window'
 import { app, shell, BrowserWindow, dialog, ipcMain } from 'electron'
 import { execFile } from 'child_process'
-import { existsSync, mkdirSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { readFile, stat, writeFile } from 'fs/promises'
 import { basename, join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -37,6 +37,28 @@ const userDataPath =
     : serialFlowUserData
 mkdirSync(userDataPath, { recursive: true })
 app.setPath('userData', userDataPath)
+
+const configDialogStatePath = join(userDataPath, 'config-dialog-state.json')
+type ConfigDialogState = { lastDirectory?: string }
+function readConfigDialogState(): ConfigDialogState {
+  try {
+    const value = JSON.parse(readFileSync(configDialogStatePath, 'utf8')) as ConfigDialogState
+    return value && typeof value === 'object' ? value : {}
+  } catch {
+    return {}
+  }
+}
+function rememberConfigDirectory(filePath: string): void {
+  try {
+    writeFileSync(
+      configDialogStatePath,
+      JSON.stringify({ lastDirectory: join(filePath, '..') }),
+      'utf8'
+    )
+  } catch {
+    // A dialog path is a convenience; failure to persist it must not block I/O.
+  }
+}
 
 type PortOptions = {
   path: string
@@ -648,15 +670,16 @@ function registerSerialHandlers(): void {
     return { path: result.filePaths[0], content: await readFile(result.filePaths[0], 'utf8') }
   })
   const configDialogOptions = (kind: unknown): { title: string; defaultPath: string } => {
+    const lastDirectory = readConfigDialogState().lastDirectory
     if (kind === 'quick-commands')
       return {
         title: '快捷指令',
-        defaultPath: 'SerialFlow-quick-commands.json'
+        defaultPath: lastDirectory ? join(lastDirectory, 'SerialFlow-quick-commands.json') : 'SerialFlow-quick-commands.json'
       }
     if (kind === 'auto-replies')
       return {
         title: '自动回复规则',
-        defaultPath: 'SerialFlow-auto-reply-rules.json'
+        defaultPath: lastDirectory ? join(lastDirectory, 'SerialFlow-auto-reply-rules.json') : 'SerialFlow-auto-reply-rules.json'
       }
     throw new Error('不支持的配置类型')
   }
@@ -670,6 +693,7 @@ function registerSerialHandlers(): void {
     })
     if (result.canceled || !result.filePath) return null
     await writeFile(result.filePath, JSON.stringify(config, null, 2), 'utf8')
+    rememberConfigDirectory(result.filePath)
     return result.filePath
   })
   ipcMain.handle('config:open', async (_event, kind: unknown) => {
@@ -689,6 +713,7 @@ function registerSerialHandlers(): void {
     })
     if (result.canceled || !result.filePaths[0]) return null
     const path = result.filePaths[0]
+    rememberConfigDirectory(path)
     return {
       path,
       content: decodeConfigText(
