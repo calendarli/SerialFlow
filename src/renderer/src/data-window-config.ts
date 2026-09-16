@@ -4,6 +4,7 @@ export type DataWindowConfig = {
   port: string
   template: string
   fieldFormats: Record<string, DataFieldFormat>
+  plotEnabled?: boolean
   programming?: boolean
   program?: string
 }
@@ -41,7 +42,8 @@ export function readDataWindowConfig(id: string): DataWindowConfig {
           Object.entries(
             saved.fieldFormats && typeof saved.fieldFormats === 'object' ? saved.fieldFormats : {}
           ).map(([name, value]) => [name, normalizeDataFieldFormat(value)])
-        )
+        ),
+        plotEnabled: saved.plotEnabled === true
       }
   } catch {
     /* Fall back to an editable example. */

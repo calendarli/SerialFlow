@@ -515,6 +515,10 @@ function registerSerialHandlers(): void {
     if (event.sender !== mainWindow?.webContents) throw new Error('请从主窗口管理数据窗口')
     if (typeof id === 'string') dataWindows.get(id)?.close()
   })
+  ipcMain.handle('dataWindow:plot', (event, value: unknown) => {
+    if (event.sender === mainWindow?.webContents) return
+    mainWindow?.webContents.send('dataWindow:plot', value)
+  })
   ipcMain.handle('serial:openedPaths', () => [...openPorts.keys()])
   ipcMain.handle('window:getAlwaysOnTop', (event) => {
     const window = BrowserWindow.fromWebContents(event.sender)

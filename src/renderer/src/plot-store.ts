@@ -126,7 +126,7 @@ export class PlotStore {
     }
   }
   appendValues(port: string, values: Record<string, number>, timestamp = Date.now()): void {
-    if (!this.ports.includes(port)) return
+    if (!this.ports.includes(port) && !port.startsWith('data-window:')) return
     const qualified = Object.fromEntries(
       Object.entries(values).flatMap(([key, value]) => {
         const name = this.ports.length > 1 ? `${port} · ${key}` : key

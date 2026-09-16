@@ -81,7 +81,11 @@ export function DataWindow({ id }: { id: string }): React.JSX.Element {
           config.program ?? defaultDataProgram,
           dataProgramInput(job.match, config)
         )
-        if (active && revision === job.revision) setProcessed({ values })
+        if (active && revision === job.revision) {
+          setProcessed({ values })
+          if (config.plotEnabled)
+            void window.api.publishDataWindowPlot({ id, name: config.name, values: Object.fromEntries(values.map((value) => [value.name, value.value])), timestamp: Date.now() })
+        }
       } catch (cause) {
         if (active && revision === job.revision)
           setProcessed({ error: cause instanceof Error ? cause.message : String(cause) })
@@ -109,6 +113,18 @@ export function DataWindow({ id }: { id: string }): React.JSX.Element {
           void processLatest()
         } else {
           setResult({ match, count: total, time })
+          if (config.plotEnabled)
+            void window.api.publishDataWindowPlot({
+              id,
+              name: config.name,
+              values: Object.fromEntries(
+                match.fields.map((field) => {
+                  const format = normalizeDataFieldFormat(config.fieldFormats[field.name])
+                  return [field.name, Number(formatDataValue(field.hex, format.signed, format.decimals).dec)]
+                })
+              ),
+              timestamp: Date.now()
+            })
         }
       }
     })
@@ -284,6 +300,10 @@ export function DataWindow({ id }: { id: string }): React.JSX.Element {
               </button>
             </div>
           </div>
+          <label>
+            <input type="checkbox" checked={draft.plotEnabled === true} onChange={(event) => setDraft({ ...draft, plotEnabled: event.target.checked })} />
+            显示到曲线图（DEC）
+          </label>
           {draft.programming && (
             <>
               <label>

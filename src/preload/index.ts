@@ -64,6 +64,12 @@ const api = {
   },
   openDataWindow: (id: string): Promise<void> => ipcRenderer.invoke('dataWindow:open', id),
   closeDataWindow: (id: string): Promise<void> => ipcRenderer.invoke('dataWindow:close', id),
+  publishDataWindowPlot: (value: { id: string; name: string; values: Record<string, number>; timestamp: number }): Promise<void> => ipcRenderer.invoke('dataWindow:plot', value),
+  onDataWindowPlot: (callback: (value: { id: string; name: string; values: Record<string, number>; timestamp: number }) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, value: { id: string; name: string; values: Record<string, number>; timestamp: number }): void => callback(value)
+    ipcRenderer.on('dataWindow:plot', listener)
+    return () => ipcRenderer.removeListener('dataWindow:plot', listener)
+  },
   getOpenedPortPaths: (): Promise<string[]> => ipcRenderer.invoke('serial:openedPaths'),
   getAlwaysOnTop: (): Promise<boolean> => ipcRenderer.invoke('window:getAlwaysOnTop'),
   setAlwaysOnTop: (enabled: boolean): Promise<boolean> =>

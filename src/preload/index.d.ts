@@ -66,6 +66,8 @@ declare global {
       onFirmwareProgress(callback: (state: FirmwareState) => void): () => void
       openDataWindow(id: string): Promise<void>
       closeDataWindow(id: string): Promise<void>
+      publishDataWindowPlot(value: { id: string; name: string; values: Record<string, number>; timestamp: number }): Promise<void>
+      onDataWindowPlot(callback: (value: { id: string; name: string; values: Record<string, number>; timestamp: number }) => void): () => void
       getOpenedPortPaths(): Promise<string[]>
       getAlwaysOnTop(): Promise<boolean>
       setAlwaysOnTop(enabled: boolean): Promise<boolean>
