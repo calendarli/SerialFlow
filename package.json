@@ -2,7 +2,7 @@
   "name": "serialflow",
   "productName": "SerialFlow",
   "desktopName": "io.github.calendarli.serialflow.desktop",
-  "version": "3.5.0",
+  "version": "3.5.1",
   "description": "高速串口数据调试与自动化交互工具",
   "main": "./out/main/index.js",
   "author": "calendarli",
