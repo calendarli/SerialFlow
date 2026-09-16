@@ -300,7 +300,7 @@ export function DataWindow({ id }: { id: string }): React.JSX.Element {
               </button>
             </div>
           </div>
-          <label>
+          <label className="data-window-plot-toggle">
             <input type="checkbox" checked={draft.plotEnabled === true} onChange={(event) => setDraft({ ...draft, plotEnabled: event.target.checked })} />
             显示到曲线图（DEC）
           </label>
