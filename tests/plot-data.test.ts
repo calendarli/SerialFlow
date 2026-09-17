@@ -8,12 +8,31 @@ import {
   type PlotSample
 } from '../src/renderer/src/plot-data'
 import { PlotStore } from '../src/renderer/src/plot-store'
+import { formatPlotValue } from '../src/renderer/src/plot-display'
 import { buildPlotProgram, defaultPlotProgram } from '../src/renderer/src/plot-program'
 import { formatTime } from '../src/renderer/src/serial-utils'
 
 test('fast receive timestamps preserve local 24-hour time and millisecond padding', () => {
   expect(formatTime(new Date(2026, 0, 1, 0, 0, 0, 1))).toBe('00:00:00.001')
   expect(formatTime(new Date(2026, 0, 1, 23, 59, 59, 999))).toBe('23:59:59.999')
+})
+
+test('plot values show full decimal digits and data windows use names without merging channels', () => {
+  expect(formatPlotValue(8330123)).toBe('8,330,123')
+  expect(formatPlotValue(8330123.25)).toBe('8,330,123.25')
+  const store = new PlotStore()
+  store.configure(['data-window:first', 'data-window:second'], 10)
+  store.setPortLabel('data-window:first', 'AD')
+  store.setPortLabel('data-window:second', 'AD')
+  store.appendValues('data-window:first', { value: 1 })
+  store.appendValues('data-window:second', { value: 2 })
+  expect([...store.channels.keys()]).toEqual([
+    'data-window:first · value',
+    'data-window:second · value'
+  ])
+  expect(store.channelLabel('data-window:first · value')).toBe('AD · value')
+  expect(store.channelLabel('data-window:second · value')).toBe('AD (2) · value')
+  store.dispose()
 })
 
 function samples(values: (number | undefined)[]): PlotBuffer<PlotSample> {

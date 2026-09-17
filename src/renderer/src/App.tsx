@@ -450,6 +450,10 @@ function App(): React.JSX.Element {
     [serialConfigs]
   )
   const [dataWindowPlotPorts, setDataWindowPlotPorts] = useState<string[]>([])
+  const enabledPlotPorts = useMemo(
+    () => [...plotPorts, ...dataWindowPlotPorts],
+    [plotPorts, dataWindowPlotPorts]
+  )
   const openedPortList = useMemo(() => [...openedPorts], [openedPorts])
   const plotStore = useMemo(() => {
     const store = new PlotStore()
@@ -467,6 +471,7 @@ function App(): React.JSX.Element {
     () =>
       window.api.onDataWindowPlot((item) => {
         const port = `data-window:${item.id}`
+        plotStore.setPortLabel(port, item.name)
         setDataWindowPlotPorts((current) => (current.includes(port) ? current : [...current, port]))
         plotStore.appendValues(port, item.values, item.timestamp)
       }),
@@ -1581,7 +1586,7 @@ function App(): React.JSX.Element {
             <div className="interaction-stack">
               <PlotPanel
                 store={plotStore}
-                enabledPorts={[...plotPorts, ...dataWindowPlotPorts]}
+                enabledPorts={enabledPlotPorts}
                 receivePaused={paused}
                 onReceivePausedChange={setPaused}
                 embedded

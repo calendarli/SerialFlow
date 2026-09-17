@@ -12,6 +12,7 @@ import { PlotBuffer, measurePlot, plotVertices, type PlotSample as Sample } from
 import { FloatingPanel } from './FloatingPanel'
 import { ProgramCodeEditor } from './ProgramCodeEditor'
 import { defaultPlotProgram } from '../plot-program'
+import { formatPlotValue } from '../plot-display'
 import { compileProgramSource } from '../scripts/program-source'
 
 type Props = {
@@ -74,7 +75,7 @@ const disabledChannelsKey = 'serialflow.plotDisabledChannels'
 const pidSettingsKey = 'serialflow.plotPidSettings'
 const maxPlotPoints = 100000
 const plotLeft = 28
-const plotRight = 910
+const plotRight = 840
 const plotTop = 20
 const plotBottom = 365
 const plotWidth = plotRight - plotLeft
@@ -199,10 +200,7 @@ function formatTime(timestamp: number, windowMs: number): string {
 }
 
 function formatAxisValue(value: number): string {
-  if (!Number.isFinite(value)) return '—'
-  const absolute = Math.abs(value)
-  if ((absolute > 0 && absolute < 0.001) || absolute >= 100000) return value.toExponential(2)
-  return Number(value.toPrecision(5)).toLocaleString()
+  return formatPlotValue(value)
 }
 
 export function PlotPanel({
@@ -546,7 +544,7 @@ export function PlotPanel({
               rows: activeChannelNames.map((name) => {
                 const stats = measurement[name]
                 return [
-                  name,
+                  store.channelLabel(name),
                   show(stats.a),
                   show(stats.b),
                   show(stats.a !== null && stats.b !== null ? stats.b - stats.a : null),
@@ -569,6 +567,7 @@ export function PlotPanel({
     measurement,
     activeCursor,
     activeChannelNames,
+    store,
     allSamples,
     endMeasurement,
     receivePaused
@@ -1583,7 +1582,9 @@ export function PlotPanel({
                     >
                       {!channelNames.length && <option value="">暂无通道</option>}
                       {channelNames.map((name) => (
-                        <option key={name}>{name}</option>
+                        <option key={name} value={name}>
+                          {store.channelLabel(name)}
+                        </option>
                       ))}
                     </select>
                   </label>
@@ -1844,8 +1845,8 @@ export function PlotPanel({
                   className="plot-channel-enabled"
                   type="checkbox"
                   checked={enabled}
-                  aria-label={`${enabled ? '停用' : '启用'} ${name}`}
-                  title={`${enabled ? '停用' : '启用'} ${name}`}
+                  aria-label={`${enabled ? '停用' : '启用'} ${store.channelLabel(name)}`}
+                  title={`${enabled ? '停用' : '启用'} ${store.channelLabel(name)}`}
                   onChange={() => toggleChannel(name)}
                 />
                 <input
@@ -1853,11 +1854,11 @@ export function PlotPanel({
                   type="color"
                   value={plotColors.series[colorIndex]}
                   disabled={!enabled}
-                  aria-label={`${name} 曲线颜色`}
-                  title={`调整 ${name} 曲线颜色`}
+                  aria-label={`${store.channelLabel(name)} 曲线颜色`}
+                  title={`调整 ${store.channelLabel(name)} 曲线颜色`}
                   onChange={(event) => changeSeriesColor(colorIndex, event.target.value)}
                 />
-                <strong>{name}</strong>
+                <strong title={store.channelLabel(name)}>{store.channelLabel(name)}</strong>
                 {item ? (
                   <>
                     <span>当前 {formatAxisValue(item.latest)}</span>
@@ -2280,7 +2281,7 @@ export function PlotPanel({
                 <small>{formatTime(hover.timestamp, 0)}</small>
                 {hover.values.map((item) => (
                   <span key={item.name} style={{ color: item.color }}>
-                    {item.name}: {formatAxisValue(item.value)}
+                    {store.channelLabel(item.name)}: {formatAxisValue(item.value)}
                   </span>
                 ))}
               </div>

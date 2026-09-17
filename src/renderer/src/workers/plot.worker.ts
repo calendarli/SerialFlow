@@ -27,7 +27,7 @@ type RenderMessage = {
 type Message = InitMessage | DataMessage | RenderMessage
 
 const plotLeft = 28
-const plotRight = 910
+const plotRight = 840
 const plotTop = 20
 const plotBottom = 365
 const plotWidth = plotRight - plotLeft

@@ -1,9 +1,11 @@
 import { PlotProgramRuntime } from './plot-program'
 import { PlotBuffer, parsePlotValues, type PlotSample } from './plot-data'
+import { displayChannelName } from './plot-display'
 
 export class PlotStore {
   samples = new PlotBuffer<PlotSample>(1000)
   channels = new Map<string, string>()
+  private portLabels = new Map<string, string>()
   private ports: string[] = []
   private nextId = 0
   private breaks = new Set<string>()
@@ -143,6 +145,19 @@ export class PlotStore {
       values: qualified
     })
     this.notify()
+  }
+  setPortLabel(port: string, label: string): void {
+    this.portLabels.set(port, label)
+  }
+  channelLabel(name: string): string {
+    const port = this.channels.get(name) || ''
+    const label = this.portLabels.get(port)?.trim()
+    if (!label) return name
+    const matchingPorts = this.ports.filter(
+      (candidate) => this.portLabels.get(candidate)?.trim() === label
+    )
+    const index = matchingPorts.indexOf(port)
+    return displayChannelName(name, port, index > 0 ? `${label} (${index + 1})` : label)
   }
   disconnect(port: string): void {
     if (!this.ports.includes(port)) return
