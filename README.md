@@ -26,6 +26,9 @@ SerialFlow 将多串口收发、可编程指令、实时曲线和固件烧录集
 | 配置共享     | 导入 / 导出 `.serialflow` 工程、快捷指令、自动回复及 Modbus 配置                   |
 | 虚拟串口     | 在 Windows 上通过配套 UMDF 2 驱动管理本地虚拟串口对                                |
 
+Modbus RTU 左侧快捷指令支持空白处右键直接新建指令、选择分组和拖拽排序；
+独立配置管理器通过列表选择设备参数预设并批量写入。
+
 ## 下载与上手
 
 在 [GitHub Releases](https://github.com/calendarli/SerialFlow/releases) 中选择与系统和架构匹配的安装包。当前发布流程生成以下包，具体以对应版本的附件为准：

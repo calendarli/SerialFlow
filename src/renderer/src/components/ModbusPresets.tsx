@@ -6,6 +6,7 @@ import {
   modbusShortcutKey,
   moveItem,
   parseModbusPresets,
+  saveModbusCommand,
   type ModbusCommand,
   type ModbusGroup,
   type ModbusPreset
@@ -136,21 +137,41 @@ export function ModbusPresets({
       <fieldset disabled={busy}>
         {!shortcuts && (
           <div className="modbus-preset-tools">
-            <select
-              aria-label="设备配置"
-              value={selected}
-              onChange={(event) => {
-                setSelected(event.target.value)
-                setEditor(null)
-              }}
-            >
-              {!presets.length && <option value="">暂无设备配置</option>}
-              {presets.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
+            <div className="modbus-preset-list">
+              <table aria-label="设备配置列表">
+                <thead>
+                  <tr>
+                    <th>配置名称</th>
+                    <th>从站</th>
+                    <th>字序</th>
+                    <th>写入项</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {presets.map((item) => (
+                    <tr key={item.id} className={item.id === selected ? 'selected' : ''}>
+                      <td>
+                        <button
+                          aria-pressed={item.id === selected}
+                          onClick={() => {
+                            setSelected(item.id)
+                            setEditor(null)
+                          }}
+                        >
+                          {item.name || '未命名配置'}
+                        </button>
+                      </td>
+                      <td>{item.slave}</td>
+                      <td>{item.wordOrder.toUpperCase()}</td>
+                      <td>
+                        {item.groups.reduce((count, group) => count + group.commands.length, 0)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {!presets.length && <p>暂无设备配置，点击“新增配置”开始。</p>}
+            </div>
             <button
               onClick={() => {
                 const item: ModbusPreset = {
@@ -280,7 +301,7 @@ export function ModbusPresets({
                 : '设备参数预设独立保存，不包含左侧快捷指令。应用后按列表顺序写入，失败停止，已写入数据不会回滚。'}
             </p>
             {shortcuts && !preset.groups.length && (
-              <p className="empty-rules">在空白处右键添加分组</p>
+              <p className="empty-rules">在空白处右键添加指令或分组</p>
             )}
             {preset.groups.map((group) => (
               <section
@@ -477,11 +498,11 @@ export function ModbusPresets({
           >
             添加分组
           </button>
+          <button role="menuitem" onClick={() => newCommand(menu.group || '')}>
+            添加指令
+          </button>
           {menu.group && (
             <>
-              <button role="menuitem" onClick={() => newCommand(menu.group!)}>
-                添加指令
-              </button>
               {!menu.command && (
                 <>
                   <button
@@ -597,18 +618,7 @@ export function ModbusPresets({
               try {
                 if (!editor.command.name.trim()) throw new Error('请输入指令名称')
                 encodeModbusCommand(editor.command, preset.slave, preset.wordOrder)
-                const next = preset.groups.map((group) =>
-                  group.id !== editor.group
-                    ? group
-                    : {
-                        ...group,
-                        commands: group.commands.some((command) => command.id === editor.command.id)
-                          ? group.commands.map((command) =>
-                              command.id === editor.command.id ? editor.command : command
-                            )
-                          : [...group.commands, editor.command]
-                      }
-                )
+                const next = saveModbusCommand(preset.groups, editor.group, editor.command)
                 if (update({ ...preset, groups: next })) setEditor(null)
               } catch (error) {
                 setError(error instanceof Error ? error.message : String(error))
@@ -619,6 +629,23 @@ export function ModbusPresets({
               <strong>{shortcuts ? '快捷指令' : '配置写入项'}</strong>
             </header>
             {error && <p role="alert">{error}</p>}
+            {shortcuts && (
+              <label>
+                所属分组
+                <select
+                  aria-label="指令分组"
+                  value={editor.group}
+                  onChange={(event) => setEditor({ ...editor, group: event.target.value })}
+                >
+                  <option value="">未分组</option>
+                  {preset.groups.map((group) => (
+                    <option key={group.id} value={group.id}>
+                      {group.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             {(['name', 'address', 'value'] as const).map((key) => (
               <label key={key}>
                 {key === 'name' ? '名称' : key === 'address' ? '寄存器地址（从 0 开始）' : '数据'}

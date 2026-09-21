@@ -20,6 +20,27 @@ export type ModbusPreset = {
 export const modbusPresetKey = 'serialflow.modbus.presets.v1'
 export const modbusShortcutKey = 'serialflow.modbus.shortcuts.v1'
 
+export function saveModbusCommand(
+  groups: ModbusGroup[],
+  groupId: string,
+  command: ModbusCommand
+): ModbusGroup[] {
+  const target =
+    groupId || groups.find((group) => group.name === '未分组')?.id || crypto.randomUUID()
+  const next = groups.map((group) => ({
+    ...group,
+    commands:
+      group.id === target
+        ? group.commands.some((item) => item.id === command.id)
+          ? group.commands.map((item) => (item.id === command.id ? command : item))
+          : [...group.commands, command]
+        : group.commands.filter((item) => item.id !== command.id)
+  }))
+  if (!next.some((group) => group.id === target))
+    next.push({ id: target, name: '未分组', commands: [command] })
+  return next
+}
+
 export function encodeModbusCommand(
   command: ModbusCommand,
   slave: number,

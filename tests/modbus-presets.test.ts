@@ -4,6 +4,7 @@ import {
   moveItem,
   parseModbusPresets,
   runModbusCommands,
+  saveModbusCommand,
   type ModbusCommand
 } from '../src/renderer/src/modbus-presets'
 import { ModbusClient } from '../src/renderer/src/modbus-client'
@@ -17,6 +18,20 @@ const command: ModbusCommand = {
   format: 'uint32'
 }
 describe('Modbus device presets', () => {
+  test('blank-area creation uses an ungrouped group and edits can move commands without duplicates', () => {
+    const first = saveModbusCommand([], '', command)
+    expect(first[0].name).toBe('未分组')
+    const second = saveModbusCommand(first, '', { ...command, id: 'second' })
+    expect(second).toHaveLength(1)
+    expect(second[0].commands).toHaveLength(2)
+    const moved = saveModbusCommand(
+      [...second, { id: 'motion', name: '运动', commands: [] }],
+      'motion',
+      { ...command, value: '42' }
+    )
+    expect(moved[0].commands.map((item) => item.id)).toEqual(['second'])
+    expect(moved[1].commands[0].value).toBe('42')
+  })
   test('encodes H06 / H10 with explicit slave, address and word order', () => {
     expect([...encodeModbusCommand(command, 7, 'abcd').request.slice(0, -2)]).toEqual([
       7, 16, 1, 0, 0, 2, 4, 0x12, 0x34, 0x56, 0x78

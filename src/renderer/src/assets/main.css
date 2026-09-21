@@ -2012,10 +2012,50 @@ footer > span:first-child {
 .modbus-presets button.primary {
   background: var(--primary);
   color: white;
+}
+.modbus-preset-tools > button.primary {
   width: 100%;
 }
-.modbus-preset-tools > select {
+.modbus-preset-list {
   width: 100%;
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.modbus-preset-list table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  text-align: left;
+}
+.modbus-preset-list th,
+.modbus-preset-list td {
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.modbus-preset-list th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-soft);
+}
+.modbus-preset-list tr.selected {
+  background: var(--primary-soft);
+}
+.modbus-preset-list td:first-child button {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  overflow-wrap: anywhere;
+}
+.modbus-preset-list tr.selected button {
+  color: var(--primary);
+  font-weight: 600;
+}
+.modbus-preset-list p {
+  padding: 8px;
+  color: var(--muted);
 }
 .modbus-preset-tools label input {
   flex: 1;
@@ -3142,8 +3182,14 @@ footer > span:first-child {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 2px;
+  padding: 0;
+  height: auto;
 }
 .modbus-dialog > footer button {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 72px;
+  white-space: nowrap;
   height: 34px;
   padding: 0 15px;
   border: 1px solid #cbd5e1;

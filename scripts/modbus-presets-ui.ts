@@ -42,8 +42,31 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
     'Quick commands must occupy a separate left column'
   )
   await context('.modbus-presets-shortcuts')
+  await click('添加指令')
+  await input('指令名称', '空白处指令')
+  await click('保存指令')
+  assert.equal(
+    await run("document.querySelector('.modbus-command-group header strong').textContent"),
+    '未分组'
+  )
+  await context('.modbus-presets-shortcuts .modbus-command-group')
+  await click('删除分组')
+  await context('.modbus-presets-shortcuts')
   await click('添加分组')
   await input('分组名称', '状态控制')
+  assert.equal(
+    await run(`(() => {
+    const buttons = [...document.querySelectorAll('[aria-label="分组编辑"] footer button')];
+    return buttons.every(button => getComputedStyle(button).whiteSpace === 'nowrap' && button.getBoundingClientRect().width >= 72) && Math.abs(buttons[0].getBoundingClientRect().top - buttons[1].getBoundingClientRect().top) < 2;
+  })()`),
+    true,
+    'Dialog actions must not shrink or wrap'
+  )
+  await new Promise((resolve) => setTimeout(resolve, 150))
+  writeFileSync(
+    join(process.cwd(), '.tmp/ui-smoke/modbus-group-dialog.png'),
+    (await window.webContents.capturePage()).toPNG()
+  )
   await click('保存分组')
   await context('.modbus-presets-shortcuts .modbus-command-group')
   await click('重命名分组')
@@ -96,7 +119,14 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
     '转速'
   )
   await click('复制配置')
-  assert.equal(await run(`document.querySelector('[aria-label="设备配置"]').options.length`), 2)
+  assert.equal(
+    await run(`document.querySelectorAll('[aria-label="设备配置列表"] tbody tr').length`),
+    2
+  )
+  await click('电机 A')
+  assert.equal(await run(`document.querySelector('[aria-label="配置名称"]').value`), '电机 A')
+  await click('电机 A 副本')
+  assert.equal(await run(`document.querySelector('[aria-label="配置名称"]').value`), '电机 A 副本')
   window.webContents.reload()
   await until(`Boolean(document.querySelector('[aria-label="Modbus RTU"]'))`)
   await run(`document.querySelector('[aria-label="Modbus RTU"]').click()`)
@@ -105,7 +135,10 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
     "Array.from(document.querySelectorAll('.modbus-menubar button')).find(b => b.textContent === '配置管理器').click()"
   )
   await until(`${scope}.querySelectorAll('.modbus-command-row').length === 2`)
-  assert.equal(await run(`document.querySelector('[aria-label="设备配置"]').options.length`), 2)
+  assert.equal(
+    await run(`document.querySelectorAll('[aria-label="设备配置列表"] tbody tr').length`),
+    2
+  )
   const sent: number[][] = []
   ipcMain.removeHandler('serial:write')
   ipcMain.handle('serial:write', (_event, port: string, base64: string) => {
