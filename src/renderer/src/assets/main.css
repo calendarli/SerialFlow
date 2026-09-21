@@ -8533,7 +8533,7 @@ body.plot-measurement-body {
 .modbus-config-manager {
   display: flex;
   flex-direction: column;
-  width: min(1040px, 94vw);
+  width: min(760px, 94vw);
   height: min(720px, 85vh);
   max-height: 85vh;
   border: 1px solid var(--border);
@@ -8554,9 +8554,7 @@ body.plot-measurement-body {
 }
 .modbus-presets-config > fieldset {
   flex: 1;
-  display: grid;
-  grid-template-columns: minmax(260px, 0.8fr) minmax(0, 1.2fr);
-  gap: 16px;
+  display: block;
   min-height: 0;
   margin-top: 12px;
 }
@@ -8567,8 +8565,40 @@ body.plot-measurement-body {
   overflow: auto;
 }
 .modbus-config-list-pane {
-  border-right: 1px solid var(--border);
-  padding-right: 12px;
+  height: 100%;
+}
+.modbus-presets-config > button.primary {
+  align-self: flex-end;
+  margin-top: 12px;
+}
+.modbus-config-editor {
+  display: flex;
+  flex-direction: column;
+  width: min(720px, 90vw);
+  max-height: 85vh;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.modbus-config-editor > fieldset {
+  min-height: 0;
+  overflow: auto;
+  margin-top: 12px;
+}
+.modbus-config-editor > footer {
+  height: auto;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 12px 0 0;
+}
+.modbus-config-editor > footer button {
+  flex: 0 0 auto;
+  min-width: 72px;
+  white-space: nowrap;
 }
 .modbus-config-list-pane .modbus-preset-list {
   max-height: none;

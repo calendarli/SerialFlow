@@ -51,6 +51,8 @@ export function ModbusPresets({
   })
   const [presets, setPresets] = useState<ModbusPreset[]>(initial.presets)
   const [selected, setSelected] = useState(initial.presets[0]?.id || '')
+  const [configDraft, setConfigDraft] = useState<ModbusPreset | null>(null)
+  const editConfigLabel = '编辑配置'
   const [error, setError] = useState(initial.error)
   const [editor, setEditor] = useState<{ group: string; command: ModbusCommand } | null>(null)
   const [drag, setDrag] = useState<{ group: string; command?: string } | null>(null)
@@ -94,7 +96,7 @@ export function ModbusPresets({
   const openConfigMenu = (event: React.MouseEvent, id?: string): void => {
     event.preventDefault()
     event.stopPropagation()
-    if (busy || editor) return
+    if (busy || editor || configDraft) return
     if (id) setSelected(id)
     setMenu({
       x: Math.max(0, Math.min(event.clientX, window.innerWidth - 190)),
@@ -102,7 +104,8 @@ export function ModbusPresets({
       list: true
     })
   }
-  const preset = presets.find((item) => item.id === selected)
+  const selectedPreset = presets.find((item) => item.id === selected)
+  const preset = configDraft || selectedPreset
   const save = (next: ModbusPreset[]): boolean => {
     try {
       localStorage.setItem(storageKey, JSON.stringify(next))
@@ -114,8 +117,14 @@ export function ModbusPresets({
       return false
     }
   }
-  const update = (next: ModbusPreset): boolean =>
-    save(presets.map((item) => (item.id === next.id ? next : item)))
+  const update = (next: ModbusPreset): boolean => {
+    if (configDraft) {
+      setConfigDraft(next)
+      setError('')
+      return true
+    }
+    return save(presets.map((item) => (item.id === next.id ? next : item)))
+  }
   const groups = (next: ModbusGroup[]): void => {
     if (preset) update({ ...preset, groups: next })
   }
@@ -132,6 +141,240 @@ export function ModbusPresets({
     })
   const commands = preset?.groups.flatMap((group) => group.commands) || []
   const executionPreset = preset && shortcuts ? { ...preset, slave, wordOrder } : preset
+  const detail = preset && (
+    <div className="modbus-preset-detail">
+      <div className="modbus-preset-tools">
+        {!shortcuts && (
+          <>
+            <label>
+              配置名称
+              <input
+                aria-label="配置名称"
+                value={preset.name}
+                onChange={(event) => update({ ...preset, name: event.target.value })}
+              />
+            </label>
+            <label>
+              从站地址
+              <input
+                aria-label="配置从站地址"
+                type="number"
+                min={1}
+                max={247}
+                value={preset.slave}
+                onChange={(event) => {
+                  const slave = Number(event.target.value)
+                  if (Number.isInteger(slave) && slave >= 1 && slave <= 247)
+                    update({ ...preset, slave })
+                }}
+              />
+            </label>
+            <label>
+              字序
+              <select
+                aria-label="配置字序"
+                value={preset.wordOrder}
+                onChange={(event) =>
+                  update({
+                    ...preset,
+                    wordOrder: event.target.value as ModbusPreset['wordOrder']
+                  })
+                }
+              >
+                <option value="abcd">ABCD</option>
+                <option value="cdab">CDAB</option>
+              </select>
+            </label>
+            <button
+              className="primary"
+              disabled={!connected || !commands.length}
+              onClick={() => void onRun(preset, commands)}
+            >
+              应用并写入配置（{commands.length}）
+            </button>
+          </>
+        )}
+        {!shortcuts && (
+          <button onClick={() => newCommand(preset.groups[0]?.id || '')}>添加写入项</button>
+        )}
+      </div>
+      <p className="modbus-preset-note">
+        {shortcuts
+          ? '左键点击指令执行，右键管理分组和指令，拖动 ⋮⋮ 排序。使用当前通信设置，自动保存到本机。'
+          : '设备参数预设独立保存，不包含左侧快捷指令。应用后按列表顺序写入，失败停止，已写入数据不会回滚。'}
+      </p>
+      {shortcuts && !preset.groups.length && (
+        <p className="empty-rules">在空白处右键添加指令或分组</p>
+      )}
+      {preset.groups.map((group) => (
+        <section
+          key={group.id}
+          className="modbus-command-group"
+          onContextMenu={(event) => openMenu(event, group.id)}
+          onDragOver={(event) => {
+            if (!busy) event.preventDefault()
+          }}
+          onDrop={(event) => {
+            event.preventDefault()
+            if (busy || !drag) return
+            if (!drag.command) groups(moveItem(preset.groups, drag.group, group.id))
+            else {
+              const command = preset.groups
+                .find((item) => item.id === drag.group)
+                ?.commands.find((item) => item.id === drag.command)
+              if (command)
+                groups(
+                  preset.groups.map((item) => ({
+                    ...item,
+                    commands: [
+                      ...item.commands.filter((item) => item.id !== command.id),
+                      ...(item.id === group.id ? [command] : [])
+                    ]
+                  }))
+                )
+            }
+            setDrag(null)
+          }}
+        >
+          <header>
+            <span
+              draggable={!busy}
+              title="拖动排序分组"
+              onDragStart={(event) => {
+                event.dataTransfer.setData('text/plain', group.id)
+                setDrag({ group: group.id })
+              }}
+              onDragEnd={() => setDrag(null)}
+            >
+              ⋮⋮
+            </span>
+            {shortcuts ? (
+              <strong>{group.name}</strong>
+            ) : (
+              <input
+                aria-label="分组名称"
+                value={group.name}
+                onChange={(event) =>
+                  groups(
+                    preset.groups.map((item) =>
+                      item.id === group.id ? { ...item, name: event.target.value } : item
+                    )
+                  )
+                }
+              />
+            )}
+            {!shortcuts && (
+              <>
+                <button onClick={() => newCommand(group.id)}>添加指令</button>
+                <button
+                  onClick={() => groups(preset.groups.filter((item) => item.id !== group.id))}
+                >
+                  删除分组
+                </button>
+              </>
+            )}
+          </header>
+          {group.commands.length === 0 && (
+            <p>
+              {shortcuts ? '右键添加指令，或拖入已有指令。' : '暂无指令，添加指令或拖入已有指令。'}
+            </p>
+          )}
+          {group.commands.map((command) => (
+            <div
+              key={command.id}
+              className="modbus-command-row"
+              onContextMenu={(event) => openMenu(event, group.id, command.id)}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => {
+                if (busy || !drag?.command) return
+                event.preventDefault()
+                event.stopPropagation()
+                const source = preset.groups
+                  .find((item) => item.id === drag.group)
+                  ?.commands.find((item) => item.id === drag.command)
+                if (!source) return
+                groups(
+                  preset.groups.map((item) => {
+                    if (drag.group === group.id)
+                      return item.id === group.id
+                        ? {
+                            ...item,
+                            commands: moveItem(item.commands, source.id, command.id)
+                          }
+                        : item
+                    const next = item.commands.filter((item) => item.id !== source.id)
+                    if (item.id === group.id)
+                      next.splice(
+                        next.findIndex((item) => item.id === command.id),
+                        0,
+                        source
+                      )
+                    return { ...item, commands: next }
+                  })
+                )
+                setDrag(null)
+              }}
+            >
+              <span
+                draggable={!busy}
+                title="拖动排序指令"
+                onDragStart={(event) => {
+                  event.stopPropagation()
+                  event.dataTransfer.setData('text/plain', command.id)
+                  setDrag({ group: group.id, command: command.id })
+                }}
+                onDragEnd={() => setDrag(null)}
+              >
+                ⋮⋮
+              </span>
+              {shortcuts ? (
+                <button
+                  className="modbus-command-trigger"
+                  disabled={!connected}
+                  onClick={() => executionPreset && void onRun(executionPreset, [command])}
+                >
+                  {command.name}
+                </button>
+              ) : (
+                <strong>{command.name}</strong>
+              )}
+              <span>地址 {command.address}</span>
+              <code>{command.value}</code>
+              <span>{command.format.toUpperCase()}</span>
+              {!shortcuts && (
+                <button disabled={!connected} onClick={() => void onRun(preset, [command])}>
+                  写入
+                </button>
+              )}
+              {!shortcuts && (
+                <>
+                  <button onClick={() => setEditor({ group: group.id, command: { ...command } })}>
+                    编辑
+                  </button>
+                  <button
+                    onClick={() =>
+                      groups(
+                        preset.groups.map((item) =>
+                          item.id === group.id
+                            ? {
+                                ...item,
+                                commands: item.commands.filter((item) => item.id !== command.id)
+                              }
+                            : item
+                        )
+                      )
+                    }
+                  >
+                    删除
+                  </button>
+                </>
+              )}
+            </div>
+          ))}
+        </section>
+      ))}
+    </div>
+  )
   return (
     <section
       className={`modbus-presets modbus-presets-${mode}`}
@@ -149,7 +392,7 @@ export function ModbusPresets({
       <fieldset disabled={busy}>
         {!shortcuts && (
           <div className="modbus-config-list-pane" onContextMenu={(event) => openConfigMenu(event)}>
-            <p className="modbus-preset-note">右键新增、复制或删除配置</p>
+            <p className="modbus-preset-note">右键新增、编辑或删除配置</p>
             <div className="modbus-preset-list">
               <table aria-label="设备配置列表">
                 <thead>
@@ -191,251 +434,75 @@ export function ModbusPresets({
             </div>
           </div>
         )}
-        {preset && (
-          <div className="modbus-preset-detail">
-            <div className="modbus-preset-tools">
-              {!shortcuts && (
-                <>
-                  <label>
-                    配置名称
-                    <input
-                      aria-label="配置名称"
-                      value={preset.name}
-                      onChange={(event) => update({ ...preset, name: event.target.value })}
-                    />
-                  </label>
-                  <label>
-                    从站地址
-                    <input
-                      aria-label="配置从站地址"
-                      type="number"
-                      min={1}
-                      max={247}
-                      value={preset.slave}
-                      onChange={(event) => {
-                        const slave = Number(event.target.value)
-                        if (Number.isInteger(slave) && slave >= 1 && slave <= 247)
-                          update({ ...preset, slave })
-                      }}
-                    />
-                  </label>
-                  <label>
-                    字序
-                    <select
-                      aria-label="配置字序"
-                      value={preset.wordOrder}
-                      onChange={(event) =>
-                        update({
-                          ...preset,
-                          wordOrder: event.target.value as ModbusPreset['wordOrder']
-                        })
-                      }
-                    >
-                      <option value="abcd">ABCD</option>
-                      <option value="cdab">CDAB</option>
-                    </select>
-                  </label>
-                  <button
-                    className="primary"
-                    disabled={!connected || !commands.length}
-                    onClick={() => void onRun(preset, commands)}
-                  >
-                    应用并写入配置（{commands.length}）
-                  </button>
-                </>
-              )}
-              {!shortcuts && (
-                <button onClick={() => newCommand(preset.groups[0]?.id || '')}>添加写入项</button>
-              )}
-            </div>
-            <p className="modbus-preset-note">
-              {shortcuts
-                ? '左键点击指令执行，右键管理分组和指令，拖动 ⋮⋮ 排序。使用当前通信设置，自动保存到本机。'
-                : '设备参数预设独立保存，不包含左侧快捷指令。应用后按列表顺序写入，失败停止，已写入数据不会回滚。'}
-            </p>
-            {shortcuts && !preset.groups.length && (
-              <p className="empty-rules">在空白处右键添加指令或分组</p>
-            )}
-            {preset.groups.map((group) => (
-              <section
-                key={group.id}
-                className="modbus-command-group"
-                onContextMenu={(event) => openMenu(event, group.id)}
-                onDragOver={(event) => {
-                  if (!busy) event.preventDefault()
-                }}
-                onDrop={(event) => {
-                  event.preventDefault()
-                  if (busy || !drag) return
-                  if (!drag.command) groups(moveItem(preset.groups, drag.group, group.id))
-                  else {
-                    const command = preset.groups
-                      .find((item) => item.id === drag.group)
-                      ?.commands.find((item) => item.id === drag.command)
-                    if (command)
-                      groups(
-                        preset.groups.map((item) => ({
-                          ...item,
-                          commands: [
-                            ...item.commands.filter((item) => item.id !== command.id),
-                            ...(item.id === group.id ? [command] : [])
-                          ]
-                        }))
-                      )
-                  }
-                  setDrag(null)
-                }}
-              >
-                <header>
-                  <span
-                    draggable={!busy}
-                    title="拖动排序分组"
-                    onDragStart={(event) => {
-                      event.dataTransfer.setData('text/plain', group.id)
-                      setDrag({ group: group.id })
-                    }}
-                    onDragEnd={() => setDrag(null)}
-                  >
-                    ⋮⋮
-                  </span>
-                  {shortcuts ? (
-                    <strong>{group.name}</strong>
-                  ) : (
-                    <input
-                      aria-label="分组名称"
-                      value={group.name}
-                      onChange={(event) =>
-                        groups(
-                          preset.groups.map((item) =>
-                            item.id === group.id ? { ...item, name: event.target.value } : item
-                          )
-                        )
-                      }
-                    />
-                  )}
-                  {!shortcuts && (
-                    <>
-                      <button onClick={() => newCommand(group.id)}>添加指令</button>
-                      <button
-                        onClick={() => groups(preset.groups.filter((item) => item.id !== group.id))}
-                      >
-                        删除分组
-                      </button>
-                    </>
-                  )}
-                </header>
-                {group.commands.length === 0 && (
-                  <p>
-                    {shortcuts
-                      ? '右键添加指令，或拖入已有指令。'
-                      : '暂无指令，添加指令或拖入已有指令。'}
-                  </p>
-                )}
-                {group.commands.map((command) => (
-                  <div
-                    key={command.id}
-                    className="modbus-command-row"
-                    onContextMenu={(event) => openMenu(event, group.id, command.id)}
-                    onDragOver={(event) => event.preventDefault()}
-                    onDrop={(event) => {
-                      if (busy || !drag?.command) return
-                      event.preventDefault()
-                      event.stopPropagation()
-                      const source = preset.groups
-                        .find((item) => item.id === drag.group)
-                        ?.commands.find((item) => item.id === drag.command)
-                      if (!source) return
-                      groups(
-                        preset.groups.map((item) => {
-                          if (drag.group === group.id)
-                            return item.id === group.id
-                              ? {
-                                  ...item,
-                                  commands: moveItem(item.commands, source.id, command.id)
-                                }
-                              : item
-                          const next = item.commands.filter((item) => item.id !== source.id)
-                          if (item.id === group.id)
-                            next.splice(
-                              next.findIndex((item) => item.id === command.id),
-                              0,
-                              source
-                            )
-                          return { ...item, commands: next }
-                        })
-                      )
-                      setDrag(null)
-                    }}
-                  >
-                    <span
-                      draggable={!busy}
-                      title="拖动排序指令"
-                      onDragStart={(event) => {
-                        event.stopPropagation()
-                        event.dataTransfer.setData('text/plain', command.id)
-                        setDrag({ group: group.id, command: command.id })
-                      }}
-                      onDragEnd={() => setDrag(null)}
-                    >
-                      ⋮⋮
-                    </span>
-                    {shortcuts ? (
-                      <button
-                        className="modbus-command-trigger"
-                        disabled={!connected}
-                        onClick={() => executionPreset && void onRun(executionPreset, [command])}
-                      >
-                        {command.name}
-                      </button>
-                    ) : (
-                      <strong>{command.name}</strong>
-                    )}
-                    <span>地址 {command.address}</span>
-                    <code>{command.value}</code>
-                    <span>{command.format.toUpperCase()}</span>
-                    {!shortcuts && (
-                      <button disabled={!connected} onClick={() => void onRun(preset, [command])}>
-                        写入
-                      </button>
-                    )}
-                    {!shortcuts && (
-                      <>
-                        <button
-                          onClick={() => setEditor({ group: group.id, command: { ...command } })}
-                        >
-                          编辑
-                        </button>
-                        <button
-                          onClick={() =>
-                            groups(
-                              preset.groups.map((item) =>
-                                item.id === group.id
-                                  ? {
-                                      ...item,
-                                      commands: item.commands.filter(
-                                        (item) => item.id !== command.id
-                                      )
-                                    }
-                                  : item
-                              )
-                            )
-                          }
-                        >
-                          删除
-                        </button>
-                      </>
-                    )}
-                  </div>
-                ))}
-              </section>
-            ))}
-          </div>
-        )}
+        {shortcuts && detail}
         {!shortcuts && !preset && (
           <p className="modbus-config-empty">在左侧右键新建配置，或选择已有配置。</p>
         )}
       </fieldset>
+      {!shortcuts && selectedPreset && (
+        <button
+          className="primary"
+          disabled={
+            busy || !connected || !selectedPreset.groups.some((group) => group.commands.length)
+          }
+          onClick={() =>
+            void onRun(
+              selectedPreset,
+              selectedPreset.groups.flatMap((group) => group.commands)
+            )
+          }
+        >
+          应用并写入配置（
+          {selectedPreset.groups.reduce((count, group) => count + group.commands.length, 0)}）
+        </button>
+      )}
       {busy && <button onClick={onCancel}>停止写入</button>}
+      {configDraft && (
+        <div className="modbus-dialog-backdrop">
+          <section className="modbus-config-editor" role="dialog" aria-label="配置编辑">
+            <header>
+              <strong>
+                {presets.some((item) => item.id === configDraft.id) ? '编辑配置' : '新增配置'}
+              </strong>
+            </header>
+            {error && <p role="alert">{error}</p>}
+            <fieldset disabled={busy}>{detail}</fieldset>
+            <footer>
+              <button
+                disabled={busy}
+                onClick={() => {
+                  setConfigDraft(null)
+                  setEditor(null)
+                  setError('')
+                }}
+              >
+                取消
+              </button>
+              <button
+                disabled={busy}
+                className="primary"
+                onClick={() => {
+                  if (!configDraft.name.trim()) return setError('请输入配置名称')
+                  const next = { ...configDraft, name: configDraft.name.trim() }
+                  if (
+                    save(
+                      presets.some((item) => item.id === next.id)
+                        ? presets.map((item) => (item.id === next.id ? next : item))
+                        : [...presets, next]
+                    )
+                  ) {
+                    setSelected(next.id)
+                    setConfigDraft(null)
+                  }
+                }}
+              >
+                保存配置
+              </button>
+              {busy && <button onClick={onCancel}>停止写入</button>}
+            </footer>
+          </section>
+        </div>
+      )}
       {menu && (preset || menu.list) && !busy && (
         <div
           className="context-menu modbus-shortcut-menu"
@@ -459,38 +526,16 @@ export function ModbusPresets({
                     wordOrder: 'cdab',
                     groups: []
                   }
-                  if (save([...presets, item])) {
-                    setSelected(item.id)
-                    setEditor(null)
-                  }
+                  setConfigDraft(item)
+                  setEditor(null)
                 }}
               >
                 新增配置
               </button>
               {preset && (
                 <>
-                  <button
-                    onClick={() => {
-                      const copy = {
-                        ...preset,
-                        id: crypto.randomUUID(),
-                        name: `${preset.name} 副本`,
-                        groups: preset.groups.map((group) => ({
-                          ...group,
-                          id: crypto.randomUUID(),
-                          commands: group.commands.map((command) => ({
-                            ...command,
-                            id: crypto.randomUUID()
-                          }))
-                        }))
-                      }
-                      if (save([...presets, copy])) {
-                        setSelected(copy.id)
-                        setEditor(null)
-                      }
-                    }}
-                  >
-                    复制配置
+                  <button onClick={() => setConfigDraft(structuredClone(preset))}>
+                    {editConfigLabel}
                   </button>
                   <button
                     onClick={() => {

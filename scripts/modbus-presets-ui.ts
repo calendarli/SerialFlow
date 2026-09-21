@@ -136,13 +136,9 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
   await click('新增配置')
   await input('配置名称', '电机 A')
   assert.equal(
-    await run(`(() => {
-    const list = document.querySelector('.modbus-config-list-pane').getBoundingClientRect();
-    const detail = document.querySelector('.modbus-presets-config .modbus-preset-detail').getBoundingClientRect();
-    return list.right <= detail.left && Math.abs(list.top - detail.top) < 2;
-  })()`),
+    await run(`Boolean(document.querySelector('[aria-label="配置编辑"] .modbus-preset-detail'))`),
     true,
-    'Configuration list and editor must be side by side'
+    'Configuration fields must be inside the new configuration dialog'
   )
   assert.equal(
     await run(
@@ -173,9 +169,25 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
     await run(`${scope}.querySelector('.modbus-command-row strong').textContent`),
     '转速'
   )
+  await new Promise((resolve) => setTimeout(resolve, 150))
+  writeFileSync(
+    join(process.cwd(), '.tmp/ui-smoke/modbus-config-editor.png'),
+    (await window.webContents.capturePage()).toPNG()
+  )
+  await click('保存配置')
+  assert.equal(await run(`Boolean(document.querySelector('[aria-label="配置名称"]'))`), false)
+  await context('.modbus-config-list-pane')
+  await click('新增配置')
+  await input('配置名称', '不应保存')
+  await click('取消')
+  assert.equal(
+    await run(`document.querySelectorAll('[aria-label="设备配置列表"] tbody tr').length`),
+    1
+  )
   await context('.modbus-config-list-pane')
   await click('新增配置')
   await input('配置名称', '临时配置')
+  await click('保存配置')
   await context('[aria-label="设备配置列表"] tbody tr:last-child')
   await click('删除配置')
   assert.equal(
@@ -183,15 +195,50 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
     1
   )
   await context('[aria-label="设备配置列表"] tbody tr:first-child')
-  await click('复制配置')
+  assert.equal(
+    await run(
+      `Array.from(document.querySelectorAll('[role="menu"] button')).some(button => button.textContent === '复制配置')`
+    ),
+    false
+  )
+  await click('编辑配置')
+  assert.equal(await run(`document.querySelector('[aria-label="配置名称"]').value`), '电机 A')
+  await input('配置名称', '取消编辑')
+  await click('取消')
+  assert.equal(
+    await run(`document.querySelector('[aria-label="设备配置列表"] tbody button').textContent`),
+    '电机 A'
+  )
+  await context('[aria-label="设备配置列表"] tbody tr:first-child')
+  await click('编辑配置')
+  await input('配置从站地址', '2')
+  await click('保存配置')
+  assert.equal(
+    await run(
+      `document.querySelector('[aria-label="设备配置列表"] tbody tr:first-child td:nth-child(2)').textContent`
+    ),
+    '2'
+  )
+  await context('[aria-label="设备配置列表"] tbody tr:first-child')
+  await click('编辑配置')
+  await input('配置从站地址', '1')
+  await click('保存配置')
+  await context('.modbus-config-list-pane')
+  await click('新增配置')
+  await input('配置名称', '电机 B')
+  await click('保存配置')
   assert.equal(
     await run(`document.querySelectorAll('[aria-label="设备配置列表"] tbody tr').length`),
     2
   )
   await click('电机 A')
-  assert.equal(await run(`document.querySelector('[aria-label="配置名称"]').value`), '电机 A')
-  await click('电机 A 副本')
-  assert.equal(await run(`document.querySelector('[aria-label="配置名称"]').value`), '电机 A 副本')
+  assert.equal(
+    await run(
+      `document.querySelector('[aria-label="设备配置列表"] tr.selected button').textContent`
+    ),
+    '电机 A'
+  )
+  await click('电机 B')
   for (const target of [
     'td:nth-child(1)',
     'td:nth-child(2)',
@@ -203,11 +250,13 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
       `document.querySelector('[aria-label="设备配置列表"] tbody tr:first-child ${target}').click()`
     )
     assert.equal(
-      await run(`document.querySelector('[aria-label="配置名称"]').value`),
+      await run(
+        `document.querySelector('[aria-label="设备配置列表"] tr.selected button').textContent`
+      ),
       '电机 A',
       `Clicking the row area ${target} must switch presets`
     )
-    await click('电机 A 副本')
+    await click('电机 B')
   }
   window.webContents.reload()
   await until(`Boolean(document.querySelector('[aria-label="Modbus RTU"]'))`)
@@ -221,7 +270,7 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
   await run(
     "Array.from(document.querySelectorAll('.modbus-menubar button')).find(b => b.textContent === '配置管理器').click()"
   )
-  await until(`${scope}.querySelectorAll('.modbus-command-row').length === 2`)
+  await until(`document.querySelectorAll('[aria-label="设备配置列表"] tbody tr').length === 2`)
   assert.equal(
     await run(`document.querySelectorAll('[aria-label="设备配置列表"] tbody tr').length`),
     2
