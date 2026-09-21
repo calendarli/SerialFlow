@@ -18,6 +18,8 @@ import {
 } from '../modbus-presets'
 
 type Props = {
+  collapsed: boolean
+  onCollapsedChange: (collapsed: boolean) => void
   ports: string[]
   onSend: (text: string, hex: boolean, port: string) => Promise<boolean>
 }
@@ -224,7 +226,12 @@ function makeWriteRequest(slave: number, address: number, words: number[]): Uint
   )
 }
 
-export function ModbusPanel({ ports, onSend }: Props): React.JSX.Element {
+export function ModbusPanel({
+  ports,
+  onSend,
+  collapsed,
+  onCollapsedChange
+}: Props): React.JSX.Element {
   const layoutRef = useRef<HTMLElement>(null)
   const resizeStart = useRef<{ x: number; width: number } | null>(null)
   const [sidebarWidth, setSidebarWidth] = useState(() => {
@@ -698,27 +705,30 @@ export function ModbusPanel({ ports, onSend }: Props): React.JSX.Element {
     <section
       ref={layoutRef}
       className="modbus-monitor"
-      style={{ gridTemplateColumns: `${sidebarWidth}px 10px minmax(0, 1fr)` }}
+      style={{ gridTemplateColumns: `${collapsed ? 0 : sidebarWidth}px 10px minmax(0, 1fr)` }}
     >
       <div
         className="modbus-sidebar-resizer"
         role="separator"
         aria-label="调整快捷指令栏宽度"
         aria-orientation="vertical"
-        aria-valuemin={sidebarPageMinimumWidth}
+        aria-valuemin={0}
         aria-valuemax={sidebarMaximum}
-        aria-valuenow={sidebarWidth}
+        aria-valuenow={collapsed ? 0 : sidebarWidth}
         tabIndex={0}
         title="拖动调整宽度，双击恢复默认宽度"
         onPointerDown={(event) => {
           if (event.button !== 0) return
           event.preventDefault()
           event.currentTarget.setPointerCapture(event.pointerId)
-          resizeStart.current = { x: event.clientX, width: sidebarWidth }
+          resizeStart.current = { x: event.clientX, width: collapsed ? 0 : sidebarWidth }
         }}
         onPointerMove={(event) => {
-          if (resizeStart.current)
-            resizeSidebar(resizeStart.current.width + event.clientX - resizeStart.current.x)
+          if (resizeStart.current) {
+            const width = resizeStart.current.width + event.clientX - resizeStart.current.x
+            onCollapsedChange(width <= 0)
+            if (width > 0) resizeSidebar(width)
+          }
         }}
         onPointerUp={(event) => {
           resizeStart.current = null
@@ -731,8 +741,16 @@ export function ModbusPanel({ ports, onSend }: Props): React.JSX.Element {
         onLostPointerCapture={() => {
           resizeStart.current = null
         }}
-        onDoubleClick={() => resizeSidebar(sidebarPageMinimumWidth)}
+        onDoubleClick={() => {
+          onCollapsedChange(false)
+          resizeSidebar(sidebarPageMinimumWidth)
+        }}
         onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            onCollapsedChange(!collapsed)
+            return
+          }
           const next =
             event.key === 'ArrowLeft'
               ? sidebarWidth - 10
@@ -745,6 +763,7 @@ export function ModbusPanel({ ports, onSend }: Props): React.JSX.Element {
                     : null
           if (next !== null) {
             event.preventDefault()
+            onCollapsedChange(false)
             resizeSidebar(next)
           }
         }}
@@ -856,7 +875,7 @@ export function ModbusPanel({ ports, onSend }: Props): React.JSX.Element {
         </time>
       </div>
 
-      <aside className="modbus-sidebar">
+      <aside className="modbus-sidebar" hidden={collapsed}>
         <nav
           className="modbus-sidebar-tabs"
           role="tablist"

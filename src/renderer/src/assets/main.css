@@ -1964,6 +1964,48 @@ footer > span:first-child {
   padding: 8px 8px 0;
   border-bottom: 1px solid var(--border);
 }
+.modbus-sidebar[hidden] {
+  display: none;
+}
+.modbus-presets-shortcuts .modbus-group-toggle {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #34445b;
+  text-align: left;
+}
+.modbus-group-toggle .group-arrow {
+  width: 10px;
+  color: #7390ad;
+  font-size: 13px;
+}
+.modbus-group-toggle .folder-icon {
+  color: #f59e0b;
+  font-size: 16px;
+}
+.modbus-group-toggle > strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+}
+.modbus-group-toggle > em {
+  flex: none;
+  margin-left: auto;
+  padding: 1px 5px;
+  border-radius: 9px;
+  background: #fff;
+  color: #8293a8;
+  font-size: 12px;
+  font-style: normal;
+}
 .modbus-sidebar-tabs button {
   flex: 1;
   padding: 10px 6px;

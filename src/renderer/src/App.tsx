@@ -519,6 +519,13 @@ function App(): React.JSX.Element {
   const [autoReplyGroups, setAutoReplyGroups] = useState<AutoReplyGroup[]>(loadAutoReplyGroups)
   const [commands, setCommands] = useState<SavedCommand[]>(loadCommands)
   const [commandGroups, setCommandGroups] = useState<CommandGroup[]>(loadCommandGroups)
+  const [modbusCollapsed, setModbusCollapsed] = useState(
+    () => localStorage.getItem('serialflow.modbus.sidebarCollapsed') === 'true'
+  )
+  const changeModbusCollapsed = (collapsed: boolean): void => {
+    setModbusCollapsed(collapsed)
+    localStorage.setItem('serialflow.modbus.sidebarCollapsed', String(collapsed))
+  }
   const [sideTab, setSideTab] = useState<
     'serial' | 'pairs' | 'commands' | 'rules' | 'modbus' | 'about'
   >('serial')
@@ -1512,6 +1519,8 @@ function App(): React.JSX.Element {
       </header>
       <section className="workspace">
         <Sidebar
+          modbusCollapsed={modbusCollapsed}
+          onModbusCollapsedChange={changeModbusCollapsed}
           activeTab={sideTab}
           onTabChange={setSideTab}
           commandCount={commands.length}
@@ -1575,6 +1584,8 @@ function App(): React.JSX.Element {
           <SerialPairPanel />
         ) : sideTab === 'modbus' ? (
           <ModbusPanel
+            collapsed={modbusCollapsed}
+            onCollapsedChange={changeModbusCollapsed}
             ports={openedPortList}
             onSend={(text, hex, port) => sendCommandData(text, hex, null, port)}
           />

@@ -270,6 +270,36 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
     true,
     'Switching tabs must retain the selected configuration'
   )
+  await run("document.querySelector('#modbus-tab-shortcuts').click()")
+  await run("document.querySelector('.modbus-group-toggle').click()")
+  assert.equal(
+    await run("document.querySelector('.modbus-group-toggle').getAttribute('aria-expanded')"),
+    'false'
+  )
+  assert.equal(await run("document.querySelectorAll('.modbus-command-trigger').length"), 0)
+  await openManager()
+  await run("document.querySelector('[aria-label=收起侧栏]').click()")
+  assert.equal(
+    await run("getComputedStyle(document.querySelector('.modbus-sidebar')).display"),
+    'none'
+  )
+  await run("document.querySelector('[aria-label=展开侧栏]').click()")
+  assert.equal(
+    await run("document.querySelector('#modbus-tab-config').getAttribute('aria-selected')"),
+    'true'
+  )
+  assert.equal(
+    await run("document.querySelector('.modbus-sidebar').getBoundingClientRect().width"),
+    430
+  )
+  await run("document.querySelector('#modbus-tab-shortcuts').click()")
+  assert.equal(
+    await run("document.querySelector('.modbus-group-toggle').getAttribute('aria-expanded')"),
+    'false'
+  )
+  await run("document.querySelector('.modbus-group-toggle').click()")
+  assert.equal(await run("document.querySelectorAll('.modbus-command-trigger').length"), 1)
+  await openManager()
   await context('[aria-label=设备配置列表] tbody tr:last-child')
   await click('删除配置')
   assert.equal(

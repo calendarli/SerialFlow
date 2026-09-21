@@ -56,6 +56,7 @@ export function ModbusPresets({
   const [error, setError] = useState(initial.error)
   const [editor, setEditor] = useState<{ group: string; command: ModbusCommand } | null>(null)
   const [drag, setDrag] = useState<{ group: string; command?: string } | null>(null)
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const [menu, setMenu] = useState<{
     x: number
     y: number
@@ -244,7 +245,24 @@ export function ModbusPresets({
               ⋮⋮
             </span>
             {shortcuts ? (
-              <strong>{group.name}</strong>
+              <button
+                className="modbus-group-toggle"
+                aria-expanded={!collapsedGroups.has(group.id)}
+                title="点击展开或折叠"
+                onClick={() =>
+                  setCollapsedGroups((current) => {
+                    const next = new Set(current)
+                    if (next.has(group.id)) next.delete(group.id)
+                    else next.add(group.id)
+                    return next
+                  })
+                }
+              >
+                <span className="group-arrow">{collapsedGroups.has(group.id) ? '▸' : '▾'}</span>
+                <b className="folder-icon">▰</b>
+                <strong>{group.name}</strong>
+                <em>{group.commands.length} 条指令</em>
+              </button>
             ) : (
               <input
                 aria-label="分组名称"
@@ -269,12 +287,12 @@ export function ModbusPresets({
               </>
             )}
           </header>
-          {group.commands.length === 0 && (
+          {!collapsedGroups.has(group.id) && group.commands.length === 0 && (
             <p>
               {shortcuts ? '右键添加指令，或拖入已有指令。' : '暂无指令，添加指令或拖入已有指令。'}
             </p>
           )}
-          {group.commands.map((command) => (
+          {(collapsedGroups.has(group.id) ? [] : group.commands).map((command) => (
             <div
               key={command.id}
               className="modbus-command-row"

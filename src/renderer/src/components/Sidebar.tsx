@@ -14,6 +14,8 @@ import {
 
 type Tab = 'serial' | 'pairs' | 'commands' | 'rules' | 'modbus' | 'about'
 type Props = {
+  modbusCollapsed: boolean
+  onModbusCollapsedChange: (collapsed: boolean) => void
   activeTab: Tab
   commandCount: number
   enabledRuleCount: number
@@ -48,6 +50,7 @@ export function Sidebar(props: Props): React.JSX.Element {
   const dragStart = useRef({ x: 0, width: defaultWidth })
   const widthRef = useRef(width)
   const collapsedRef = useRef(collapsed)
+  const activeCollapsed = props.activeTab === 'modbus' ? props.modbusCollapsed : collapsed
 
   useEffect(() => {
     const handleResize = (): void =>
@@ -210,15 +213,20 @@ export function Sidebar(props: Props): React.JSX.Element {
             aria-hidden="true"
           />
         </button>
-        {!fullPage && (
+        {(!fullPage || props.activeTab === 'modbus') && (
           <button
             className="sidebar-collapse-tab"
-            data-tooltip={collapsed ? '展开侧栏' : '收起侧栏'}
+            data-tooltip={activeCollapsed ? '展开侧栏' : '收起侧栏'}
             data-tooltip-side="right"
-            aria-label={collapsed ? '展开侧栏' : '收起侧栏'}
-            onClick={toggleCollapsed}
+            aria-label={activeCollapsed ? '展开侧栏' : '收起侧栏'}
+            aria-expanded={!activeCollapsed}
+            onClick={() =>
+              props.activeTab === 'modbus'
+                ? props.onModbusCollapsedChange(!activeCollapsed)
+                : toggleCollapsed()
+            }
           >
-            {collapsed ? (
+            {activeCollapsed ? (
               <PanelLeftOpen
                 className="tab-icon tab-icon-utility"
                 size={22}
