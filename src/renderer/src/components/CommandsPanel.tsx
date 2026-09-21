@@ -684,22 +684,31 @@ export const CommandsPanel = memo(function CommandsPanel(props: Props): React.JS
   }
   const commandOrder = useListReorder(
     props.commands,
-    (next, source) => {
-      let ancestorId = source.parentId
+    (next, source, target) => {
       const visited = new Set<number>()
       let stoppedLoop = false
-      while (ancestorId !== null && !visited.has(ancestorId)) {
-        visited.add(ancestorId)
-        if (activeGroupLoopIds.has(ancestorId)) {
-          stopGroupLoop(ancestorId)
-          stoppedLoop = true
+      for (const parentId of [source.parentId, target.parentId]) {
+        let ancestorId = parentId
+        while (ancestorId !== null && !visited.has(ancestorId)) {
+          visited.add(ancestorId)
+          if (activeGroupLoopIds.has(ancestorId)) {
+            stopGroupLoop(ancestorId)
+            stoppedLoop = true
+          }
+          ancestorId = props.groups.find((group) => group.id === ancestorId)?.parentId ?? null
         }
-        ancestorId = props.groups.find((group) => group.id === ancestorId)?.parentId ?? null
       }
-      props.setCommands(next)
+      props.setCommands(
+        next.map((command) =>
+          command.id === source.id ? { ...command, parentId: target.parentId } : command
+        )
+      )
+      setDraggedNode(null)
+      setDropTargetId(undefined)
       setError(stoppedLoop ? '顺序已更新，受影响组的自动循环已停止，可手动重新启动' : '')
     },
-    (source, target) => source.parentId === target.parentId
+    () => true,
+    true
   )
   const clearDrag = (): void => {
     commandOrder.clear()
@@ -884,6 +893,10 @@ export const CommandsPanel = memo(function CommandsPanel(props: Props): React.JS
       className={`command-item ${commandOrder.className(command)} ${draggedNode?.type === 'command' && draggedNode.id === command.id ? 'is-dragging' : ''}`}
       key={`command-${command.id}`}
       {...commandOrder.dropProps(command)}
+      onDragOver={(event) => {
+        commandOrder.dropProps(command).onDragOver?.(event)
+        if (draggedNode?.type === 'command') setDropTargetId(undefined)
+      }}
       onContextMenu={(event) => openMenu(event, 'command', command.id)}
     >
       <div
@@ -1077,7 +1090,13 @@ export const CommandsPanel = memo(function CommandsPanel(props: Props): React.JS
   }
 
   return (
-    <div className="commands-panel" onContextMenu={(event) => openMenu(event, 'root', null)}>
+    <div
+      className="commands-panel"
+      onContextMenu={(event) => openMenu(event, 'root', null)}
+      onDragOver={(event) => dragOver(event, null)}
+      onDragLeave={dragLeave}
+      onDrop={(event) => dropNode(event, null)}
+    >
       <div className="side-section-head">
         <div>
           <strong>快捷指令</strong>

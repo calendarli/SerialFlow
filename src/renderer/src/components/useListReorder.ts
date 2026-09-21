@@ -4,8 +4,9 @@ import type { DragEvent, HTMLAttributes } from 'react'
 // Reorder only on drop so cancelled drags never change the saved configuration.
 export function useListReorder<T extends { id: number }>(
   items: T[],
-  onReorder: (items: T[], source: T) => void,
-  canReorder: (source: T, target: T) => boolean = () => true
+  onReorder: (items: T[], source: T, target: T) => void,
+  canReorder: (source: T, target: T) => boolean = () => true,
+  notifyUnchanged = false
 ): {
   start: (event: DragEvent, item: T) => void
   clear: () => void
@@ -61,7 +62,8 @@ export function useListReorder<T extends { id: number }>(
           const next = items.filter((entry) => entry.id !== source.id)
           const index = next.findIndex((entry) => entry.id === item.id)
           next.splice(index + (locate(event) ? 1 : 0), 0, source)
-          if (next.some((entry, i) => entry.id !== items[i].id)) onReorder(next, source)
+          if (next.some((entry, i) => entry.id !== items[i].id) || notifyUnchanged)
+            onReorder(next, source, item)
         }
         clear()
       }
