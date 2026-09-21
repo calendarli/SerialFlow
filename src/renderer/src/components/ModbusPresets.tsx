@@ -165,16 +165,16 @@ export function ModbusPresets({
                     <tr
                       key={item.id}
                       className={item.id === selected ? 'selected' : ''}
+                      aria-disabled={busy}
+                      onClick={() => {
+                        if (busy) return
+                        setSelected(item.id)
+                        setEditor(null)
+                      }}
                       onContextMenu={(event) => openConfigMenu(event, item.id)}
                     >
                       <td>
-                        <button
-                          aria-pressed={item.id === selected}
-                          onClick={() => {
-                            setSelected(item.id)
-                            setEditor(null)
-                          }}
-                        >
+                        <button aria-pressed={item.id === selected}>
                           {item.name || '未命名配置'}
                         </button>
                       </td>

@@ -2058,6 +2058,15 @@ footer > span:first-child {
 .modbus-preset-list tr.selected {
   background: var(--primary-soft);
 }
+.modbus-preset-list tbody tr[aria-disabled='false'] {
+  cursor: pointer;
+}
+.modbus-preset-list tbody tr[aria-disabled='false']:hover {
+  background: var(--primary-soft);
+}
+.modbus-preset-list td:first-child button:hover:not(:disabled) {
+  background: transparent;
+}
 .modbus-preset-list td:first-child button {
   width: 100%;
   text-align: left;

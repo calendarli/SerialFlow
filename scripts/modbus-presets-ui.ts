@@ -192,6 +192,23 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
   assert.equal(await run(`document.querySelector('[aria-label="配置名称"]').value`), '电机 A')
   await click('电机 A 副本')
   assert.equal(await run(`document.querySelector('[aria-label="配置名称"]').value`), '电机 A 副本')
+  for (const target of [
+    'td:nth-child(1)',
+    'td:nth-child(2)',
+    'td:nth-child(3)',
+    'td:nth-child(4)',
+    ''
+  ]) {
+    await run(
+      `document.querySelector('[aria-label="设备配置列表"] tbody tr:first-child ${target}').click()`
+    )
+    assert.equal(
+      await run(`document.querySelector('[aria-label="配置名称"]').value`),
+      '电机 A',
+      `Clicking the row area ${target} must switch presets`
+    )
+    await click('电机 A 副本')
+  }
   window.webContents.reload()
   await until(`Boolean(document.querySelector('[aria-label="Modbus RTU"]'))`)
   await run(`document.querySelector('[aria-label="Modbus RTU"]').click()`)
