@@ -8680,6 +8680,37 @@ body.plot-measurement-body {
   background: var(--primary-soft) !important;
   overflow-wrap: anywhere;
 }
+.modbus-command-group,
+.modbus-command-row {
+  position: relative;
+}
+.modbus-presets .is-dragging {
+  opacity: 0.45;
+}
+.modbus-presets .modbus-command-group.is-drop-inside {
+  border-color: #3b82f6;
+  background: #eaf3ff;
+  outline: 2px solid #93c5fd;
+  outline-offset: -2px;
+}
+.modbus-presets .is-drop-before::before,
+.modbus-presets .is-drop-after::after {
+  content: '';
+  position: absolute;
+  z-index: 1;
+  left: 0;
+  right: 0;
+  height: 3px;
+  border-radius: 2px;
+  background: #2563eb;
+  pointer-events: none;
+}
+.modbus-presets .is-drop-before::before {
+  top: -4px;
+}
+.modbus-presets .is-drop-after::after {
+  bottom: -4px;
+}
 
 /* Match the compact grouped lists used by the other sidebar tabs. */
 .modbus-presets-shortcuts > header {

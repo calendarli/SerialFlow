@@ -18,6 +18,20 @@ const command: ModbusCommand = {
   value: '0x12345678',
   format: 'uint32'
 }
+
+test('drop edges insert before or after the target in either direction', () => {
+  const items = ['a', 'b', 'c'].map((id) => ({ id }))
+  const order = (source: string, target: string, edge: 'before' | 'after'): string =>
+    moveItem(items, source, target, edge)
+      .map((item) => item.id)
+      .join('')
+  expect(order('a', 'c', 'before')).toBe('bac')
+  expect(order('a', 'c', 'after')).toBe('bca')
+  expect(order('c', 'a', 'before')).toBe('cab')
+  expect(order('c', 'a', 'after')).toBe('acb')
+  expect(order('a', 'a', 'after')).toBe('abc')
+  expect(order('missing', 'a', 'before')).toBe('abc')
+})
 describe('Modbus device presets', () => {
   test('captures exact typed homepage values and preserves 32-bit words in both orders', () => {
     for (const order of ['abcd', 'cdab'] as const) {

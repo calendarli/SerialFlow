@@ -138,12 +138,18 @@ export function encodeModbusCommand(
 export function moveItem<T extends { id: string }>(
   items: T[],
   source: string,
-  target: string
+  target: string,
+  edge?: 'before' | 'after'
 ): T[] {
   const from = items.findIndex((item) => item.id === source)
   const to = items.findIndex((item) => item.id === target)
   if (from < 0 || to < 0 || from === to) return items
   const next = [...items]
+  if (edge) {
+    const [item] = next.splice(from, 1)
+    next.splice(next.findIndex((item) => item.id === target) + (edge === 'after' ? 1 : 0), 0, item)
+    return next
+  }
   next.splice(to, 0, next.splice(from, 1)[0])
   return next
 }

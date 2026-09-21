@@ -56,6 +56,23 @@ export function ModbusPresets({
   const [error, setError] = useState(initial.error)
   const [editor, setEditor] = useState<{ group: string; command: ModbusCommand } | null>(null)
   const [drag, setDrag] = useState<{ group: string; command?: string } | null>(null)
+  const [dropTarget, setDropTarget] = useState<{
+    group: string
+    command?: string
+    edge: 'before' | 'after' | 'inside'
+  } | null>(null)
+  const clearDrag = (): void => {
+    setDrag(null)
+    setDropTarget(null)
+  }
+  const dropEdge = (event: React.DragEvent<HTMLElement>): 'before' | 'after' => {
+    const bounds = event.currentTarget.getBoundingClientRect()
+    return event.clientY < bounds.top + bounds.height / 2 ? 'before' : 'after'
+  }
+  const dropClass = (group: string, command?: string): string =>
+    dropTarget?.group === group && dropTarget.command === command
+      ? ` is-drop-${dropTarget.edge}`
+      : ''
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const [menu, setMenu] = useState<{
     x: number
@@ -205,15 +222,32 @@ export function ModbusPresets({
       {preset.groups.map((group) => (
         <section
           key={group.id}
-          className="modbus-command-group"
+          className={`modbus-command-group${dropClass(group.id)}${drag?.group === group.id && !drag.command ? ' is-dragging' : ''}`}
           onContextMenu={(event) => openMenu(event, group.id)}
           onDragOver={(event) => {
-            if (!busy) event.preventDefault()
+            if (busy || !drag) return
+            event.preventDefault()
+            event.stopPropagation()
+            event.dataTransfer.dropEffect = 'move'
+            setDropTarget(
+              !drag.command && drag.group === group.id
+                ? null
+                : {
+                    group: group.id,
+                    edge: drag.command ? 'inside' : dropEdge(event)
+                  }
+            )
+          }}
+          onDragLeave={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null))
+              setDropTarget(null)
           }}
           onDrop={(event) => {
             event.preventDefault()
             if (busy || !drag) return
-            if (!drag.command) groups(moveItem(preset.groups, drag.group, group.id))
+            event.stopPropagation()
+            if (!drag.command)
+              groups(moveItem(preset.groups, drag.group, group.id, dropEdge(event)))
             else {
               const command = preset.groups
                 .find((item) => item.id === drag.group)
@@ -229,7 +263,7 @@ export function ModbusPresets({
                   }))
                 )
             }
-            setDrag(null)
+            clearDrag()
           }}
         >
           <header>
@@ -238,9 +272,10 @@ export function ModbusPresets({
               title="拖动排序分组"
               onDragStart={(event) => {
                 event.dataTransfer.setData('text/plain', group.id)
+                event.dataTransfer.effectAllowed = 'move'
                 setDrag({ group: group.id })
               }}
-              onDragEnd={() => setDrag(null)}
+              onDragEnd={clearDrag}
             >
               ⋮⋮
             </span>
@@ -295,9 +330,23 @@ export function ModbusPresets({
           {(collapsedGroups.has(group.id) ? [] : group.commands).map((command) => (
             <div
               key={command.id}
-              className="modbus-command-row"
+              className={`modbus-command-row${dropClass(group.id, command.id)}${drag?.command === command.id ? ' is-dragging' : ''}`}
               onContextMenu={(event) => openMenu(event, group.id, command.id)}
-              onDragOver={(event) => event.preventDefault()}
+              onDragOver={(event) => {
+                if (busy || !drag?.command) return
+                event.preventDefault()
+                event.stopPropagation()
+                event.dataTransfer.dropEffect = 'move'
+                setDropTarget(
+                  drag.command === command.id
+                    ? null
+                    : {
+                        group: group.id,
+                        command: command.id,
+                        edge: dropEdge(event)
+                      }
+                )
+              }}
               onDrop={(event) => {
                 if (busy || !drag?.command) return
                 event.preventDefault()
@@ -312,20 +361,26 @@ export function ModbusPresets({
                       return item.id === group.id
                         ? {
                             ...item,
-                            commands: moveItem(item.commands, source.id, command.id)
+                            commands: moveItem(
+                              item.commands,
+                              source.id,
+                              command.id,
+                              dropEdge(event)
+                            )
                           }
                         : item
                     const next = item.commands.filter((item) => item.id !== source.id)
                     if (item.id === group.id)
                       next.splice(
-                        next.findIndex((item) => item.id === command.id),
+                        next.findIndex((item) => item.id === command.id) +
+                          (dropEdge(event) === 'after' ? 1 : 0),
                         0,
                         source
                       )
                     return { ...item, commands: next }
                   })
                 )
-                setDrag(null)
+                clearDrag()
               }}
             >
               <span
@@ -334,9 +389,10 @@ export function ModbusPresets({
                 onDragStart={(event) => {
                   event.stopPropagation()
                   event.dataTransfer.setData('text/plain', command.id)
+                  event.dataTransfer.effectAllowed = 'move'
                   setDrag({ group: group.id, command: command.id })
                 }}
-                onDragEnd={() => setDrag(null)}
+                onDragEnd={clearDrag}
               >
                 ⋮⋮
               </span>

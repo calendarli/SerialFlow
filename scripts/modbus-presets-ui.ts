@@ -143,6 +143,48 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
   await click('添加指令')
   await input('指令名称', '临时指令')
   await click('保存指令')
+  const dragCommand = async (edge: 'before' | 'after'): Promise<void> => {
+    await run(`(() => {
+      window.modbusDragTransfer = new DataTransfer();
+      const row = Array.from(document.querySelectorAll('.modbus-command-row')).find(row => row.querySelector('strong').textContent === '临时指令');
+      row.querySelector('[draggable]').dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: window.modbusDragTransfer }));
+    })()`)
+    await run(`(() => {
+      const row = Array.from(document.querySelectorAll('.modbus-command-row')).find(row => row.querySelector('strong').textContent === '使能');
+      const bounds = row.getBoundingClientRect();
+      row.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: window.modbusDragTransfer, clientY: ${edge === 'before' ? 'bounds.top + 1' : 'bounds.bottom - 1'} }));
+    })()`)
+    assert.equal(await run(`document.querySelectorAll('.is-drop-${edge}').length`), 1)
+    await run(`(() => {
+      const row = document.querySelector('.is-drop-${edge}');
+      const bounds = row.getBoundingClientRect();
+      row.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: window.modbusDragTransfer, clientY: ${edge === 'before' ? 'bounds.top + 1' : 'bounds.bottom - 1'} }));
+    })()`)
+    assert.equal(
+      await run(
+        "document.querySelectorAll('.is-drop-before, .is-drop-after, .is-dragging').length"
+      ),
+      0
+    )
+    assert.equal(
+      await run("document.querySelector('.modbus-command-name').textContent"),
+      edge === 'before' ? '临时指令' : '使能'
+    )
+  }
+  await dragCommand('before')
+  await dragCommand('after')
+  await run(`(() => {
+    const handle = document.querySelector('.modbus-command-row [draggable]');
+    handle.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: new DataTransfer() }));
+  })()`)
+  await run(
+    "document.querySelector('.modbus-command-group').dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: new DataTransfer() }))"
+  )
+  assert.equal(await run("document.querySelectorAll('.is-drop-inside').length"), 1)
+  await run(
+    "document.querySelector('.modbus-command-row [draggable]').dispatchEvent(new DragEvent('dragend', { bubbles: true }))"
+  )
+  assert.equal(await run("document.querySelectorAll('.is-drop-inside, .is-dragging').length"), 0)
   await context('.modbus-presets-shortcuts .modbus-command-row:last-child')
   await click('删除指令')
   assert.equal(await run("document.querySelectorAll('.modbus-command-trigger').length"), 1)
