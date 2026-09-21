@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { sidebarPageMinimumWidth } from '../sidebar-layout'
 import {
   Cable,
   Network,
@@ -25,7 +26,7 @@ type Props = {
 const storageKey = 'serialflow.sidebarWidth'
 const collapsedStorageKey = 'serialflow.sidebarCollapsed'
 const tabRailWidth = 52
-const tabPageWidth = 330
+const tabPageWidth = sidebarPageMinimumWidth
 const defaultWidth = tabRailWidth + tabPageWidth + 1 // Include the sidebar's right border.
 
 function clampWidth(value: number): number {

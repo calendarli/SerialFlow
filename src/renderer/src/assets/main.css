@@ -1928,7 +1928,7 @@ footer > span:first-child {
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-columns: 310px 10px minmax(0, 1fr);
+  grid-template-columns: 330px 10px minmax(0, 1fr);
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   row-gap: 10px;
   padding: 14px;

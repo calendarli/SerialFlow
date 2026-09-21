@@ -30,13 +30,20 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
       `document.querySelector(${JSON.stringify(selector)}).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 140, clientY: 240 }))`
     )
   }
-  await run(`document.querySelector('[aria-label="Modbus RTU"]').click()`)
+  await run(
+    `localStorage.setItem('serialflow.modbus.sidebarWidth', '220'); document.querySelector('[aria-label="Modbus RTU"]').click()`
+  )
   await until(`Boolean(document.querySelector('.modbus-presets'))`)
   const handle = '[aria-label="调整快捷指令栏宽度"]'
+  assert.equal(
+    await run(`document.querySelector('.modbus-presets-shortcuts').getBoundingClientRect().width`),
+    330,
+    'Previously saved narrow widths must be raised to the shared tab minimum'
+  )
   await run(
     `document.querySelector('${handle}').dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))`
   )
-  await until(`document.querySelector('${handle}').getAttribute('aria-valuenow') === '220'`)
+  await until(`document.querySelector('${handle}').getAttribute('aria-valuenow') === '330'`)
   await run(
     `document.querySelector('${handle}').dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }))`
   )
@@ -46,13 +53,13 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
   await run(
     `document.querySelector('${handle}').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))`
   )
-  await until(`document.querySelector('${handle}').getAttribute('aria-valuenow') === '310'`)
+  await until(`document.querySelector('${handle}').getAttribute('aria-valuenow') === '330'`)
   const grip = (await run(
     `(() => { const rect = document.querySelector('${handle}').getBoundingClientRect(); return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + 80) }; })()`
   )) as { x: number; y: number }
   window.webContents.sendInputEvent({ type: 'mouseDown', ...grip, button: 'left', clickCount: 1 })
   window.webContents.sendInputEvent({ type: 'mouseMove', x: grip.x + 100, y: grip.y })
-  await until(`document.querySelector('${handle}').getAttribute('aria-valuenow') === '410'`)
+  await until(`document.querySelector('${handle}').getAttribute('aria-valuenow') === '430'`)
   window.webContents.sendInputEvent({
     type: 'mouseUp',
     x: grip.x + 100,
@@ -63,7 +70,7 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
   window.webContents.sendInputEvent({ type: 'mouseMove', x: grip.x + 150, y: grip.y })
   assert.equal(
     await run(`document.querySelector('.modbus-presets-shortcuts').getBoundingClientRect().width`),
-    410
+    430
   )
   assert.equal(
     await run(`(() => {
@@ -191,7 +198,7 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
   await until("document.querySelectorAll('.modbus-command-trigger').length === 1")
   assert.equal(
     await run(`document.querySelector('.modbus-presets-shortcuts').getBoundingClientRect().width`),
-    410,
+    430,
     'Dragged width must survive reload'
   )
   await run(

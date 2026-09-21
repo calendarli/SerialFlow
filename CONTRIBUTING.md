@@ -37,6 +37,7 @@ bun run postinstall
 
 Modbus 设备预设的数据校验、编码与顺序执行位于 `src/renderer/src/modbus-presets.ts`，
 界面位于 `components/ModbusPresets.tsx`，复用 `ModbusPanel` 的 RTU 客户端。
+侧栏内容区最小宽度由 `sidebar-layout.ts` 统一定义，普通 TAB 和 Modbus 拖拽侧栏应保持一致。
 修改后运行 `bun test tests/modbus-presets.test.ts tests/serial-protocols.test.ts`，构建后执行
 `bun run test:ui:serial`，覆盖栏宽拖拽与恢复、空白右键新建、分组编辑、弹窗按钮布局、配置左右布局与右键管理、配置列表切换、拖拽、复制、重载保存及模拟确认写入；真实设备仍需单独验收。
 

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { appendCrc, base64ToBytes, bytesToHex } from '../serial-utils'
 import { ModbusClient } from '../modbus-client'
 import { ModbusPresets } from './ModbusPresets'
+import { sidebarPageMinimumWidth } from '../sidebar-layout'
 import {
   encodeModbusCommand,
   runModbusCommands,
@@ -228,9 +229,11 @@ export function ModbusPanel({ ports, onSend }: Props): React.JSX.Element {
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     try {
       const saved = Number(localStorage.getItem('serialflow.modbus.sidebarWidth'))
-      return Number.isFinite(saved) && saved >= 220 ? Math.min(600, saved) : 310
+      return Number.isFinite(saved)
+        ? Math.max(sidebarPageMinimumWidth, Math.min(600, saved))
+        : sidebarPageMinimumWidth
     } catch {
-      return 310
+      return sidebarPageMinimumWidth
     }
   })
   const [sidebarMaximum, setSidebarMaximum] = useState(600)
@@ -238,7 +241,10 @@ export function ModbusPanel({ ports, onSend }: Props): React.JSX.Element {
     const layout = layoutRef.current
     if (!layout) return
     const observer = new ResizeObserver(() => {
-      const maximum = Math.max(220, Math.min(600, layout.clientWidth - 28 - 10 - 420))
+      const maximum = Math.max(
+        sidebarPageMinimumWidth,
+        Math.min(600, layout.clientWidth - 28 - 10 - 420)
+      )
       setSidebarMaximum(maximum)
       setSidebarWidth((current) => Math.min(current, maximum))
     })
@@ -253,7 +259,7 @@ export function ModbusPanel({ ports, onSend }: Props): React.JSX.Element {
     }
   }, [sidebarWidth])
   const resizeSidebar = (width: number): void => {
-    setSidebarWidth(Math.round(Math.max(220, Math.min(sidebarMaximum, width))))
+    setSidebarWidth(Math.round(Math.max(sidebarPageMinimumWidth, Math.min(sidebarMaximum, width))))
   }
   const [port, setPort] = useState('')
   const [slave, setSlave] = useState(1)
@@ -669,7 +675,7 @@ export function ModbusPanel({ ports, onSend }: Props): React.JSX.Element {
         role="separator"
         aria-label="调整快捷指令栏宽度"
         aria-orientation="vertical"
-        aria-valuemin={220}
+        aria-valuemin={sidebarPageMinimumWidth}
         aria-valuemax={sidebarMaximum}
         aria-valuenow={sidebarWidth}
         tabIndex={0}
@@ -695,7 +701,7 @@ export function ModbusPanel({ ports, onSend }: Props): React.JSX.Element {
         onLostPointerCapture={() => {
           resizeStart.current = null
         }}
-        onDoubleClick={() => resizeSidebar(310)}
+        onDoubleClick={() => resizeSidebar(sidebarPageMinimumWidth)}
         onKeyDown={(event) => {
           const next =
             event.key === 'ArrowLeft'
@@ -703,7 +709,7 @@ export function ModbusPanel({ ports, onSend }: Props): React.JSX.Element {
               : event.key === 'ArrowRight'
                 ? sidebarWidth + 10
                 : event.key === 'Home'
-                  ? 220
+                  ? sidebarPageMinimumWidth
                   : event.key === 'End'
                     ? sidebarMaximum
                     : null
