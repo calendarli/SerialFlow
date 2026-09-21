@@ -6027,7 +6027,8 @@ footer > span:first-child {
   outline: 2px solid #93c5fd;
   outline-offset: -2px;
 }
-.commands-panel .command-group {
+.commands-panel .command-group,
+.modbus-presets-shortcuts .modbus-command-group {
   padding: 4px;
   border-radius: 8px;
   box-shadow: none;
@@ -8636,4 +8637,84 @@ body.plot-measurement-body {
   color: var(--primary) !important;
   background: var(--primary-soft) !important;
   overflow-wrap: anywhere;
+}
+
+/* Match the compact grouped lists used by the other sidebar tabs. */
+.modbus-presets-shortcuts > header {
+  min-height: 28px;
+  border: 0;
+}
+.modbus-presets-shortcuts .modbus-preset-note {
+  margin: 8px 0;
+}
+.modbus-presets-shortcuts .modbus-command-group {
+  margin-top: 6px;
+  border-color: #cfdceb;
+  background: #f6f9fd;
+}
+.modbus-presets-shortcuts .modbus-command-group > header {
+  flex-wrap: nowrap;
+  gap: 5px;
+  min-height: 30px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: #edf4fb;
+  color: #34445b;
+}
+.modbus-presets-shortcuts .modbus-command-group > header > strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 700;
+}
+.modbus-presets-shortcuts [draggable] {
+  flex: none;
+  padding: 2px 3px;
+  color: #7390ad;
+}
+.modbus-presets-shortcuts .modbus-command-group > p {
+  margin: 6px 7px;
+  font-size: 12px;
+}
+.modbus-presets-shortcuts .modbus-command-row {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 4px 5px;
+  margin: 5px 0 0 7px;
+  padding: 7px;
+  border: 1px solid #d9e3ef;
+  border-radius: 7px;
+  background: var(--surface);
+}
+.modbus-presets-shortcuts .modbus-command-row > [draggable] {
+  grid-row: 1 / 3;
+}
+.modbus-presets-shortcuts .modbus-command-trigger {
+  grid-column: 2 / 5;
+  min-height: 25px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent !important;
+  color: var(--text) !important;
+  text-align: left;
+  font-size: 15px;
+}
+.modbus-presets-shortcuts .modbus-command-trigger:hover:not(:disabled) {
+  color: var(--primary) !important;
+  background: var(--primary-soft) !important;
+}
+.modbus-presets-shortcuts .modbus-command-row > span:not([draggable]),
+.modbus-presets-shortcuts .modbus-command-row > code {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.modbus-presets-shortcuts .modbus-command-row > span:last-child {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--surface-soft);
 }
