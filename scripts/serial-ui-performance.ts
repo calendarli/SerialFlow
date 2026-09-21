@@ -4,6 +4,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import assert from 'node:assert/strict'
 import NodeModule, { createRequire } from 'node:module'
+import { checkModbusPresets } from './modbus-presets-ui'
 
 const root = process.cwd()
 const moduleRequire = createRequire(path.join(root, 'package.json'))
@@ -178,6 +179,12 @@ app.whenReady().then(async () => {
     await until(() => dataRun('document.body.textContent.includes("等待匹配数据")'))
     console.log('Data window: AD to gf, saved configuration, script timeout and disconnect passed')
     dataWindow.destroy()
+    await checkModbusPresets(window)
+    assert(errors.length === 0, errors.join('\n'))
+    fs.writeFileSync(
+      path.join(root, '.tmp/ui-smoke/modbus-presets.png'),
+      (await window.webContents.capturePage()).toPNG()
+    )
     clearTimeout(deadline)
     app.exit(0)
   } catch (error) {

@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { appendCrc, base64ToBytes, bytesToHex } from '../serial-utils'
 import { ModbusClient } from '../modbus-client'
+import { ModbusPresets } from './ModbusPresets'
+import {
+  encodeModbusCommand,
+  runModbusCommands,
+  type ModbusCommand,
+  type ModbusPreset
+} from '../modbus-presets'
 
 type Props = {
   ports: string[]
@@ -239,6 +246,9 @@ export function ModbusPanel({ ports, onSend }: Props): React.JSX.Element {
   const [errorCount, setErrorCount] = useState(0)
   const [lastResponseMs, setLastResponseMs] = useState<number | null>(null)
   const clientRef = useRef(new ModbusClient())
+  const [presetBusy, setPresetBusy] = useState(false)
+  const [configManagerOpen, setConfigManagerOpen] = useState(false)
+  const presetRun = useRef({ busy: false, cancelled: false })
   const connectionRevision = useRef({ value: 0 })
   const onSendRef = useRef(onSend)
   useEffect(() => {
@@ -316,7 +326,7 @@ export function ModbusPanel({ ports, onSend }: Props): React.JSX.Element {
   }, [targetPort, normalizedSlave])
 
   const sendRead = async (): Promise<void> => {
-    if (!targetPort || clientRef.current.busy) return
+    if (!targetPort || clientRef.current.busy || presetRun.current.busy) return
     const revision = connectionRevision.current.value
     setMessage('Waiting for response...')
     try {
@@ -360,6 +370,7 @@ export function ModbusPanel({ ports, onSend }: Props): React.JSX.Element {
   }, [polling, readRequest, normalizedRate, targetPort])
 
   const writeRegister = async (address: number, input: string): Promise<void> => {
+    if (presetRun.current.busy) return setMessage('正在写入设备配置，请等待完成')
     if (!targetPort) return setMessage('No connection')
     const definition = definitions[address] || {
       format: 'uint16' as const,
@@ -406,6 +417,71 @@ export function ModbusPanel({ ports, onSend }: Props): React.JSX.Element {
       if (revision !== connectionRevision.current.value) return
       setErrorCount((count) => count + 1)
       setMessage(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  const runPreset = async (preset: ModbusPreset, commands: ModbusCommand[]): Promise<void> => {
+    if (!targetPort || presetRun.current.busy) return
+    if (clientRef.current.busy) {
+      setMessage('请等待当前 Modbus 响应后再写入配置')
+      return
+    }
+    try {
+      // Validate the complete batch before the first device write.
+      commands.forEach((command) => encodeModbusCommand(command, preset.slave, preset.wordOrder))
+    } catch (error) {
+      setMessage(String(error))
+      return
+    }
+    const revision = connectionRevision.current.value
+    presetRun.current = { busy: true, cancelled: false }
+    setPresetBusy(true)
+    setPolling(false)
+    let completed = 0
+    const cancelled = (): boolean =>
+      presetRun.current.cancelled || revision !== connectionRevision.current.value
+    setMessage(`${preset.name}：准备写入 ${commands.length} 条指令`)
+    try {
+      await runModbusCommands(
+        commands,
+        async (command) => {
+          const { request, address, words } = encodeModbusCommand(
+            command,
+            preset.slave,
+            preset.wordOrder
+          )
+          await clientRef.current.request(request, async () => {
+            if (cancelled()) return false
+            const success = await onSendRef.current(bytesToHex(request), true, targetPort)
+            if (success) setTxCount((count) => count + 1)
+            return success
+          })
+          if (revision !== connectionRevision.current.value) throw new Error('连接已变化')
+          if (preset.slave === normalizedSlave)
+            setValues((current) =>
+              current.map((value, index) =>
+                index >= address && index < address + words.length ? words[index - address] : value
+              )
+            )
+          setLastResponseMs(Date.now())
+        },
+        cancelled,
+        (count) => {
+          completed = count
+          setMessage(`${preset.name}：已确认 ${count}/${commands.length}`)
+        }
+      )
+      setMessage(
+        `${preset.name}：写入完成 ${completed}/${commands.length} · ID ${preset.slave} · ${preset.wordOrder.toUpperCase()}`
+      )
+    } catch (error) {
+      setErrorCount((count) => count + 1)
+      setMessage(
+        `${preset.name}：已确认 ${completed}/${commands.length}，停止于「${commands[completed]?.name || ''}」：${error instanceof Error ? error.message : String(error)}；未确认的写入请读回核对`
+      )
+    } finally {
+      presetRun.current.busy = false
+      setPresetBusy(false)
     }
   }
 
@@ -561,6 +637,7 @@ export function ModbusPanel({ ports, onSend }: Props): React.JSX.Element {
           </span>
         </div>
         <nav className="modbus-menubar" aria-label="Modbus RTU 菜单">
+          <button onClick={() => setConfigManagerOpen(true)}>配置管理器</button>
           <div className="modbus-menu-root">
             <button onClick={() => setOpenMenu(openMenu === 'config' ? null : 'config')}>
               配置
@@ -614,7 +691,7 @@ export function ModbusPanel({ ports, onSend }: Props): React.JSX.Element {
                 onPointerDown={(event) => event.stopPropagation()}
               >
                 <button
-                  disabled={!targetPort || polling}
+                  disabled={!targetPort || polling || presetBusy}
                   onClick={() => {
                     setOpenMenu(null)
                     void sendRead()
@@ -623,7 +700,7 @@ export function ModbusPanel({ ports, onSend }: Props): React.JSX.Element {
                   读取一次
                 </button>
                 <button
-                  disabled={!targetPort}
+                  disabled={!targetPort || presetBusy}
                   onClick={() => {
                     setOpenMenu(null)
                     setPolling((current) => !current)
@@ -652,13 +729,51 @@ export function ModbusPanel({ ports, onSend }: Props): React.JSX.Element {
                 : ''
           }
         >
-          {targetPort ? message : 'No connection'}
+          {message}
         </b>
         <time>
           {lastResponseMs ? `Last RX ${new Date(lastResponseMs).toLocaleTimeString()}` : ''}
         </time>
       </div>
 
+      <ModbusPresets
+        mode="shortcuts"
+        slave={normalizedSlave}
+        wordOrder={wordOrder}
+        connected={!!targetPort}
+        busy={presetBusy}
+        target={targetPort}
+        onRun={runPreset}
+        onCancel={() => {
+          presetRun.current.cancelled = true
+          setMessage('正在停止：等待当前指令响应，不再发送后续指令')
+        }}
+      />
+      {configManagerOpen && (
+        <div className="modbus-dialog-backdrop">
+          <section className="modbus-config-manager" role="dialog" aria-label="设备配置管理器">
+            <header>
+              <strong>配置管理器</strong>
+              <button aria-label="关闭配置管理器" onClick={() => setConfigManagerOpen(false)}>
+                ×
+              </button>
+            </header>
+            <ModbusPresets
+              mode="config"
+              slave={normalizedSlave}
+              wordOrder={wordOrder}
+              connected={!!targetPort}
+              busy={presetBusy}
+              target={targetPort}
+              onRun={runPreset}
+              onCancel={() => {
+                presetRun.current.cancelled = true
+              }}
+            />
+            <p role="status">{message}</p>
+          </section>
+        </div>
+      )}
       <div className="modbus-table-wrap">
         <table className="modbus-register-table">
           <thead>
