@@ -100,8 +100,17 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
   )
   await context('.modbus-presets-shortcuts')
   await click('添加指令')
+  assert.equal(await run("document.querySelector('[aria-label=指令分组]').value"), '')
   await input('指令名称', '空白处指令')
   await click('保存指令')
+  assert.equal(
+    await run("document.querySelector('.modbus-ungrouped .modbus-command-name').textContent"),
+    '空白处指令'
+  )
+  assert.equal(
+    await run("getComputedStyle(document.querySelector('.modbus-ungrouped > header')).display"),
+    'none'
+  )
   assert.equal(
     await run("document.querySelector('.modbus-command-group header strong').textContent"),
     '未分组'
@@ -187,6 +196,40 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
   assert.equal(await run("document.querySelectorAll('.is-drop-inside, .is-dragging').length"), 0)
   await context('.modbus-presets-shortcuts .modbus-command-row:last-child')
   await click('删除指令')
+  const startCommandDrag = async (): Promise<void> => {
+    await run(
+      "document.querySelector('.modbus-command-row [draggable]').dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: new DataTransfer() }))"
+    )
+  }
+  await startCommandDrag()
+  await run(
+    "document.querySelector('.modbus-presets-shortcuts').dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: new DataTransfer() }))"
+  )
+  assert.equal(
+    await run("document.querySelector('.modbus-root-drop').classList.contains('is-drop-inside')"),
+    true
+  )
+  await run(
+    "document.querySelector('.modbus-root-drop').dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: new DataTransfer() }))"
+  )
+  assert.equal(
+    await run("document.querySelector('.modbus-ungrouped .modbus-command-name').textContent"),
+    '使能'
+  )
+  assert.equal(
+    await run(
+      "JSON.parse(localStorage.getItem('serialflow.modbus.shortcuts.v1'))[0].groups.find(group => group.name === '未分组').commands[0].name"
+    ),
+    '使能'
+  )
+  await startCommandDrag()
+  await run(
+    "document.querySelector('.modbus-command-group:not(.modbus-ungrouped)').dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: new DataTransfer() }))"
+  )
+  assert.equal(
+    await run("document.querySelectorAll('.modbus-ungrouped .modbus-command-row').length"),
+    0
+  )
   assert.equal(await run("document.querySelectorAll('.modbus-command-trigger').length"), 1)
   const openManager = async (): Promise<void> => {
     await run("document.querySelector('#modbus-tab-config').click()")

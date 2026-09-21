@@ -8711,6 +8711,32 @@ body.plot-measurement-body {
 .modbus-presets .is-drop-after::after {
   bottom: -4px;
 }
+.modbus-root-drop {
+  margin: 6px 0;
+  padding: 8px;
+  border: 1px dashed #cfdceb;
+  border-radius: 7px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.modbus-root-drop.is-drop-inside {
+  border-color: #3b82f6;
+  background: #eaf3ff;
+  outline: 2px solid #93c5fd;
+  outline-offset: -2px;
+}
+.modbus-presets-shortcuts .modbus-command-group.modbus-ungrouped {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.modbus-presets-shortcuts .modbus-ungrouped > header,
+.modbus-presets-shortcuts .modbus-ungrouped > p {
+  display: none;
+}
+.modbus-presets-shortcuts .modbus-ungrouped > .modbus-command-row {
+  margin-left: 0;
+}
 
 /* Match the compact grouped lists used by the other sidebar tabs. */
 .modbus-presets-shortcuts > header {

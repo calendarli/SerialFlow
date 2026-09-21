@@ -219,10 +219,15 @@ export function ModbusPresets({
       {shortcuts && !preset.groups.length && (
         <p className="empty-rules">在空白处右键添加指令或分组</p>
       )}
+      {shortcuts && drag?.command && (
+        <div className={`modbus-root-drop${dropTarget?.group === '' ? ' is-drop-inside' : ''}`}>
+          放到组外 · 松开后移出当前分组
+        </div>
+      )}
       {preset.groups.map((group) => (
         <section
           key={group.id}
-          className={`modbus-command-group${dropClass(group.id)}${drag?.group === group.id && !drag.command ? ' is-dragging' : ''}`}
+          className={`modbus-command-group${shortcuts && group.name === '未分组' ? ' modbus-ungrouped' : ''}${dropClass(group.id)}${drag?.group === group.id && !drag.command ? ' is-dragging' : ''}`}
           onContextMenu={(event) => openMenu(event, group.id)}
           onDragOver={(event) => {
             if (busy || !drag) return
@@ -449,6 +454,35 @@ export function ModbusPresets({
       className={`modbus-presets modbus-presets-${mode}`}
       aria-label={shortcuts ? 'Modbus 快捷指令' : 'Modbus 配置管理器'}
       onContextMenu={(event) => openMenu(event)}
+      onDragOver={(event) => {
+        if (!shortcuts || busy || !drag?.command) return
+        event.preventDefault()
+        event.dataTransfer.dropEffect = 'move'
+        setDropTarget({ group: '', edge: 'inside' })
+      }}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropTarget(null)
+      }}
+      onDrop={(event) => {
+        if (!shortcuts || busy || !drag?.command || !preset) return
+        event.preventDefault()
+        event.stopPropagation()
+        const command = preset.groups
+          .find((group) => group.id === drag.group)
+          ?.commands.find((command) => command.id === drag.command)
+        if (command) {
+          const next = saveModbusCommand(preset.groups, '', command)
+          groups(next)
+          const root = next.find((group) => group.name === '未分组')
+          if (root)
+            setCollapsedGroups((current) => {
+              const next = new Set(current)
+              next.delete(root.id)
+              return next
+            })
+        }
+        clearDrag()
+      }}
     >
       <header>
         <strong>{shortcuts ? '快捷指令' : '设备配置'}</strong>
