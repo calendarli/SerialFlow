@@ -296,10 +296,30 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
     )
     await run("document.querySelector('[aria-label=设备配置列表] tbody tr:last-child').click()")
   }
+  await context('.modbus-value')
+  await run(
+    "Array.from(document.querySelectorAll('.modbus-context-menu button')).find(b => b.textContent.includes('编辑')).click()"
+  )
+  await run(`(() => {
+    const input = document.querySelector('.modbus-dialog input');
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, '手动编辑持久化');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  })()`)
+  await run("document.querySelector('.modbus-dialog button[type=submit]').click()")
+  await until(
+    "JSON.parse(localStorage.getItem('serialflow.modbus.workspace.v1')).definitions[0].alias === '手动编辑持久化'"
+  )
   window.webContents.reload()
   await until('Boolean(document.querySelector(\'[aria-label="Modbus RTU"]\'))')
   await run('document.querySelector(\'[aria-label="Modbus RTU"]\').click()')
   await until("document.querySelectorAll('.modbus-command-trigger').length === 1")
+  assert.equal(
+    await run(
+      "document.querySelector('.modbus-register-table').textContent.includes('手动编辑持久化')"
+    ),
+    true
+  )
+  assert.equal(await run("document.querySelector('.modbus-value').textContent.trim()"), '--')
   assert.equal(
     await run("document.querySelector('.modbus-sidebar').getBoundingClientRect().width"),
     430
@@ -351,6 +371,48 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
   )
   await run("window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))")
   await until("!document.querySelector('.modbus-shortcut-menu')")
+  ipcMain.removeHandler('modbus:openMap')
+  ipcMain.handle('modbus:openMap', () => ({
+    name: 'persisted-import.json',
+    base64: Buffer.from(
+      JSON.stringify({
+        format: 'serialflow-modbus-map',
+        version: 1,
+        slave: 7,
+        wordOrder: 'abcd',
+        scanRate: 250,
+        registers: [{ address: 12, alias: '外部导入持久化', format: 'uint32' }]
+      })
+    ).toString('base64')
+  }))
+  await run(
+    "Array.from(document.querySelectorAll('.modbus-menubar button')).find(b => b.textContent === '配置').click()"
+  )
+  await run(
+    "Array.from(document.querySelectorAll('.modbus-menu-popover button')).find(b => b.textContent.includes('导入')).click()"
+  )
+  await until(
+    "document.querySelector('.modbus-register-table').textContent.includes('外部导入持久化')"
+  )
+  await until(
+    "JSON.parse(localStorage.getItem('serialflow.modbus.workspace.v1')).mapName === 'persisted-import.json'"
+  )
+  window.webContents.reload()
+  await until('Boolean(document.querySelector(\'[aria-label="Modbus RTU"]\'))')
+  await run('document.querySelector(\'[aria-label="Modbus RTU"]\').click()')
+  await until(
+    "document.querySelector('.modbus-register-table')?.textContent.includes('外部导入持久化')"
+  )
+  const workspace = (await run(
+    "JSON.parse(localStorage.getItem('serialflow.modbus.workspace.v1'))"
+  )) as {
+    definitions: unknown
+    values?: unknown[]
+  }
+  assert.deepEqual(workspace.definitions, {
+    12: { alias: '外部导入持久化', format: 'uint32', words: 2 }
+  })
+  assert.equal(workspace.values, undefined, 'Live values must not be persisted')
   await new Promise((resolve) => setTimeout(resolve, 150))
   console.log(
     'Modbus: homepage capture, exact register restoration, list selection, persistence and quick controls passed'

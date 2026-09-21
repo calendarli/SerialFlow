@@ -4,6 +4,12 @@ import { ModbusClient } from '../modbus-client'
 import { ModbusPresets } from './ModbusPresets'
 import { sidebarPageMinimumWidth } from '../sidebar-layout'
 import {
+  modbusWorkspaceKey,
+  parseModbusWorkspace,
+  type ModbusWorkspace,
+  type RegisterDefinition
+} from '../modbus-workspace'
+import {
   encodeModbusCommand,
   captureModbusPreset,
   runModbusCommands,
@@ -14,12 +20,6 @@ import {
 type Props = {
   ports: string[]
   onSend: (text: string, hex: boolean, port: string) => Promise<boolean>
-}
-
-type RegisterDefinition = {
-  alias?: string
-  format: 'hex16' | 'uint16' | 'int32' | 'uint32' | 'float32'
-  words: 1 | 2
 }
 
 type WordOrder = 'abcd' | 'cdab'
@@ -262,17 +262,26 @@ export function ModbusPanel({ ports, onSend }: Props): React.JSX.Element {
   const resizeSidebar = (width: number): void => {
     setSidebarWidth(Math.round(Math.max(sidebarPageMinimumWidth, Math.min(sidebarMaximum, width))))
   }
+  const [restored] = useState(() => {
+    try {
+      const raw = localStorage.getItem(modbusWorkspaceKey)
+      return { data: raw ? parseModbusWorkspace(raw) : null, error: '' }
+    } catch {
+      return { data: null, error: 'Modbus 本地数据读取失败，已使用默认映射' }
+    }
+  })
+  const [storageError, setStorageError] = useState(restored.error)
   const [port, setPort] = useState('')
   const [slave, setSlave] = useState(1)
   const functionCode = 3
   const [wordOrder, setWordOrder] = useState<WordOrder>('cdab')
-  const [definitions, setDefinitions] = useState<Record<number, RegisterDefinition>>(() => ({
-    ...registerDefinitions
-  }))
+  const [definitions, setDefinitions] = useState<Record<number, RegisterDefinition>>(
+    () => restored.data?.definitions ?? { ...registerDefinitions }
+  )
   const [registerDialog, setRegisterDialog] = useState<RegisterDialog | null>(null)
   const [openMenu, setOpenMenu] = useState<ModbusMenu | null>(null)
   const [settingsDialog, setSettingsDialog] = useState<CommunicationSettings | null>(null)
-  const [mapName, setMapName] = useState('vsmd104_105_x4.mbp')
+  const [mapName, setMapName] = useState(restored.data?.mapName ?? 'vsmd104_105_x4.mbp')
   const [scanRate, setScanRate] = useState(1000)
   const [polling, setPolling] = useState(false)
   const [values, setValues] = useState<Array<number | undefined>>(() =>
@@ -298,6 +307,23 @@ export function ModbusPanel({ ports, onSend }: Props): React.JSX.Element {
   const targetPort = ports.includes(port) ? port : ports[0] || ''
   const normalizedSlave = clampInteger(slave, 1, 247)
   const normalizedRate = clampInteger(scanRate, 50, 60000)
+  const workspace: ModbusWorkspace = {
+    version: 1,
+    mapName,
+    definitions
+  }
+  const serializedWorkspace = JSON.stringify(workspace)
+  const initialWorkspace = useRef(serializedWorkspace)
+  useEffect(() => {
+    // Preserve unreadable storage until the user changes the workspace.
+    if (restored.error && serializedWorkspace === initialWorkspace.current) return
+    try {
+      localStorage.setItem(modbusWorkspaceKey, serializedWorkspace)
+      setStorageError('')
+    } catch {
+      setStorageError('Modbus 数据保存失败，请检查本地存储空间')
+    }
+  }, [serializedWorkspace, restored.error])
 
   useEffect(() => {
     if (!contextMenu && !openMenu) return
@@ -970,7 +996,8 @@ export function ModbusPanel({ ports, onSend }: Props): React.JSX.Element {
       </div>
       <footer className="modbus-hint">
         右键寄存器可新增、编辑、写入或删除；双击数值使用 H06/H10 写入；支持 MBP 导入和 JSON
-        配置导入/导出。
+        配置导入/导出。寄存器地址、命名及数据类型自动保存，数值不持久化。
+        {storageError && <span role="alert">{storageError}</span>}
       </footer>
       {contextMenu && (
         <div
