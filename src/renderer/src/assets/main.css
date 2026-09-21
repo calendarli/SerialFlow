@@ -1928,9 +1928,9 @@ footer > span:first-child {
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-columns: 310px minmax(0, 1fr);
+  grid-template-columns: 310px 10px minmax(0, 1fr);
   grid-template-rows: auto auto minmax(0, 1fr) auto;
-  gap: 10px;
+  row-gap: 10px;
   padding: 14px;
   background: #f4f7fb;
 }
@@ -1949,8 +1949,24 @@ footer > span:first-child {
 .modbus-monitor > .modbus-status,
 .modbus-monitor > .modbus-table-wrap,
 .modbus-monitor > .modbus-hint {
-  grid-column: 2;
+  grid-column: 3;
   min-width: 0;
+}
+.modbus-sidebar-resizer {
+  grid-column: 2;
+  grid-row: 1 / 5;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+  border-radius: 4px;
+  background: linear-gradient(var(--border), var(--border)) center / 2px 100% no-repeat;
+}
+.modbus-sidebar-resizer:hover,
+.modbus-sidebar-resizer:focus-visible,
+.modbus-sidebar-resizer:active {
+  background-color: var(--primary-soft);
+  background-image: linear-gradient(var(--primary), var(--primary));
+  outline: none;
 }
 .modbus-monitor > .modbus-toolbar {
   grid-row: 1;

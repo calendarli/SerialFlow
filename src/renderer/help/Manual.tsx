@@ -370,6 +370,7 @@ export default function Manual(): React.JSX.Element {
 
           <article id="modbus" data-title="Modbus RTU 主站 从站 功能码 寄存器 CRC">
             <h2>Modbus RTU</h2>
+            <p>拖动快捷指令栏右侧分隔条可调整宽度，自动记住设置；双击分隔条恢复默认宽度。</p>
             <p>
               选择已打开串口后，读取或轮询保持寄存器，使用 H06 / H10 写入寄存器。软件负责 RTU 报文和
               CRC，并校验设备响应。

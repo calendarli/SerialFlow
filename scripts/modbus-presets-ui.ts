@@ -32,6 +32,39 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
   }
   await run(`document.querySelector('[aria-label="Modbus RTU"]').click()`)
   await until(`Boolean(document.querySelector('.modbus-presets'))`)
+  const handle = '[aria-label="调整快捷指令栏宽度"]'
+  await run(
+    `document.querySelector('${handle}').dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))`
+  )
+  await until(`document.querySelector('${handle}').getAttribute('aria-valuenow') === '220'`)
+  await run(
+    `document.querySelector('${handle}').dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }))`
+  )
+  await until(
+    `document.querySelector('${handle}').getAttribute('aria-valuenow') === document.querySelector('${handle}').getAttribute('aria-valuemax')`
+  )
+  await run(
+    `document.querySelector('${handle}').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))`
+  )
+  await until(`document.querySelector('${handle}').getAttribute('aria-valuenow') === '310'`)
+  const grip = (await run(
+    `(() => { const rect = document.querySelector('${handle}').getBoundingClientRect(); return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + 80) }; })()`
+  )) as { x: number; y: number }
+  window.webContents.sendInputEvent({ type: 'mouseDown', ...grip, button: 'left', clickCount: 1 })
+  window.webContents.sendInputEvent({ type: 'mouseMove', x: grip.x + 100, y: grip.y })
+  await until(`document.querySelector('${handle}').getAttribute('aria-valuenow') === '410'`)
+  window.webContents.sendInputEvent({
+    type: 'mouseUp',
+    x: grip.x + 100,
+    y: grip.y,
+    button: 'left',
+    clickCount: 1
+  })
+  window.webContents.sendInputEvent({ type: 'mouseMove', x: grip.x + 150, y: grip.y })
+  assert.equal(
+    await run(`document.querySelector('.modbus-presets-shortcuts').getBoundingClientRect().width`),
+    410
+  )
   assert.equal(
     await run(`(() => {
     const sidebar = document.querySelector('.modbus-presets').getBoundingClientRect();
@@ -131,6 +164,11 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
   await until(`Boolean(document.querySelector('[aria-label="Modbus RTU"]'))`)
   await run(`document.querySelector('[aria-label="Modbus RTU"]').click()`)
   await until("document.querySelectorAll('.modbus-command-trigger').length === 1")
+  assert.equal(
+    await run(`document.querySelector('.modbus-presets-shortcuts').getBoundingClientRect().width`),
+    410,
+    'Dragged width must survive reload'
+  )
   await run(
     "Array.from(document.querySelectorAll('.modbus-menubar button')).find(b => b.textContent === '配置管理器').click()"
   )

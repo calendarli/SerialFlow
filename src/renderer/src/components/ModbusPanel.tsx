@@ -223,6 +223,38 @@ function makeWriteRequest(slave: number, address: number, words: number[]): Uint
 }
 
 export function ModbusPanel({ ports, onSend }: Props): React.JSX.Element {
+  const layoutRef = useRef<HTMLElement>(null)
+  const resizeStart = useRef<{ x: number; width: number } | null>(null)
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    try {
+      const saved = Number(localStorage.getItem('serialflow.modbus.sidebarWidth'))
+      return Number.isFinite(saved) && saved >= 220 ? Math.min(600, saved) : 310
+    } catch {
+      return 310
+    }
+  })
+  const [sidebarMaximum, setSidebarMaximum] = useState(600)
+  useEffect(() => {
+    const layout = layoutRef.current
+    if (!layout) return
+    const observer = new ResizeObserver(() => {
+      const maximum = Math.max(220, Math.min(600, layout.clientWidth - 28 - 10 - 420))
+      setSidebarMaximum(maximum)
+      setSidebarWidth((current) => Math.min(current, maximum))
+    })
+    observer.observe(layout)
+    return () => observer.disconnect()
+  }, [])
+  useEffect(() => {
+    try {
+      localStorage.setItem('serialflow.modbus.sidebarWidth', String(sidebarWidth))
+    } catch {
+      /* Keep resizing available when local storage is unavailable. */
+    }
+  }, [sidebarWidth])
+  const resizeSidebar = (width: number): void => {
+    setSidebarWidth(Math.round(Math.max(220, Math.min(sidebarMaximum, width))))
+  }
   const [port, setPort] = useState('')
   const [slave, setSlave] = useState(1)
   const functionCode = 3
@@ -627,7 +659,60 @@ export function ModbusPanel({ ports, onSend }: Props): React.JSX.Element {
   }
 
   return (
-    <section className="modbus-monitor">
+    <section
+      ref={layoutRef}
+      className="modbus-monitor"
+      style={{ gridTemplateColumns: `${sidebarWidth}px 10px minmax(0, 1fr)` }}
+    >
+      <div
+        className="modbus-sidebar-resizer"
+        role="separator"
+        aria-label="调整快捷指令栏宽度"
+        aria-orientation="vertical"
+        aria-valuemin={220}
+        aria-valuemax={sidebarMaximum}
+        aria-valuenow={sidebarWidth}
+        tabIndex={0}
+        title="拖动调整宽度，双击恢复默认宽度"
+        onPointerDown={(event) => {
+          if (event.button !== 0) return
+          event.preventDefault()
+          event.currentTarget.setPointerCapture(event.pointerId)
+          resizeStart.current = { x: event.clientX, width: sidebarWidth }
+        }}
+        onPointerMove={(event) => {
+          if (resizeStart.current)
+            resizeSidebar(resizeStart.current.width + event.clientX - resizeStart.current.x)
+        }}
+        onPointerUp={(event) => {
+          resizeStart.current = null
+          if (event.currentTarget.hasPointerCapture(event.pointerId))
+            event.currentTarget.releasePointerCapture(event.pointerId)
+        }}
+        onPointerCancel={() => {
+          resizeStart.current = null
+        }}
+        onLostPointerCapture={() => {
+          resizeStart.current = null
+        }}
+        onDoubleClick={() => resizeSidebar(310)}
+        onKeyDown={(event) => {
+          const next =
+            event.key === 'ArrowLeft'
+              ? sidebarWidth - 10
+              : event.key === 'ArrowRight'
+                ? sidebarWidth + 10
+                : event.key === 'Home'
+                  ? 220
+                  : event.key === 'End'
+                    ? sidebarMaximum
+                    : null
+          if (next !== null) {
+            event.preventDefault()
+            resizeSidebar(next)
+          }
+        }}
+      />
       <header className="modbus-toolbar modbus-menu-toolbar">
         <div className="modbus-title">
           <strong>Modbus RTU</strong>
