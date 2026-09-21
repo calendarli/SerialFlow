@@ -196,7 +196,7 @@ export function ModbusPresets({
       </div>
       <p className="modbus-preset-note">
         {shortcuts
-          ? '左键点击指令执行，右键管理分组和指令，拖动 ⋮⋮ 排序。使用当前通信设置，自动保存到本机。'
+          ? '点击“写入”执行指令，右键管理分组和指令，拖动 ⋮⋮ 排序。使用当前通信设置，自动保存到本机。'
           : '设备参数预设独立保存，不包含左侧快捷指令。应用后按列表顺序写入，失败停止，已写入数据不会回滚。'}
       </p>
       {shortcuts && !preset.groups.length && (
@@ -340,16 +340,16 @@ export function ModbusPresets({
               >
                 ⋮⋮
               </span>
-              {shortcuts ? (
+              <strong className="modbus-command-name">{command.name}</strong>
+              {shortcuts && (
                 <button
                   className="modbus-command-trigger"
+                  aria-label={`写入 ${command.name}`}
                   disabled={!connected}
                   onClick={() => executionPreset && void onRun(executionPreset, [command])}
                 >
-                  {command.name}
+                  写入
                 </button>
-              ) : (
-                <strong>{command.name}</strong>
               )}
               <span>地址 {command.address}</span>
               <code>{command.value}</code>

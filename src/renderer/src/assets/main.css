@@ -8734,15 +8734,18 @@ body.plot-measurement-body {
 .modbus-presets-shortcuts .modbus-command-row > [draggable] {
   grid-row: 1 / 3;
 }
-.modbus-presets-shortcuts .modbus-command-trigger {
-  grid-column: 2 / 5;
-  min-height: 25px;
-  padding: 0;
-  border-color: transparent;
-  background: transparent !important;
-  color: var(--text) !important;
-  text-align: left;
+.modbus-presets-shortcuts .modbus-command-name {
+  grid-column: 2 / 4;
+  min-width: 0;
   font-size: 15px;
+  overflow-wrap: anywhere;
+}
+.modbus-presets-shortcuts .modbus-command-trigger {
+  grid-column: 4;
+  min-height: 25px;
+  padding: 0 9px;
+  white-space: nowrap;
+  font-size: 14px;
 }
 .modbus-presets-shortcuts .modbus-command-trigger:hover:not(:disabled) {
   color: var(--primary) !important;

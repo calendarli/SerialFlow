@@ -387,7 +387,11 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
   )
   await run("document.querySelector('#modbus-tab-shortcuts').click()")
   await until("!document.querySelector('.modbus-command-trigger').disabled")
-  await click('使能')
+  const sentBeforeNameClick = sent.length
+  await run("document.querySelector('.modbus-command-name').click()")
+  await new Promise((resolve) => setTimeout(resolve, 100))
+  assert.equal(sent.length, sentBeforeNameClick, 'Clicking the name must not write registers')
+  await click('写入')
   await until("document.querySelector('.modbus-status').textContent.includes('写入完成 1/1')")
   assert.equal(sent.at(-1)![3], 10)
   assert.equal(sent.at(-1)![5], 2)
