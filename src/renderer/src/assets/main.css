@@ -8524,7 +8524,8 @@ body.plot-measurement-body {
 .modbus-config-manager {
   display: flex;
   flex-direction: column;
-  width: min(760px, 90vw);
+  width: min(1040px, 94vw);
+  height: min(720px, 85vh);
   max-height: 85vh;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -8537,6 +8538,44 @@ body.plot-measurement-body {
 }
 .modbus-config-manager > .modbus-presets {
   border: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.modbus-presets-config > fieldset {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(260px, 0.8fr) minmax(0, 1.2fr);
+  gap: 16px;
+  min-height: 0;
+  margin-top: 12px;
+}
+.modbus-config-list-pane,
+.modbus-presets-config .modbus-preset-detail {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+.modbus-config-list-pane {
+  border-right: 1px solid var(--border);
+  padding-right: 12px;
+}
+.modbus-config-list-pane .modbus-preset-list {
+  max-height: none;
+}
+.modbus-presets-config .modbus-command-group > header {
+  display: none;
+}
+.modbus-presets-config .modbus-preset-detail > .modbus-preset-note {
+  display: none;
+}
+.modbus-presets-config .modbus-preset-tools {
+  margin-top: 0;
+}
+.modbus-config-empty {
+  color: var(--muted);
+  font-size: 13px;
 }
 .modbus-config-manager > p {
   padding: 8px 16px;

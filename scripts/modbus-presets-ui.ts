@@ -125,17 +125,32 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
   await run(
     "Array.from(document.querySelectorAll('.modbus-menubar button')).find(b => b.textContent === '配置管理器').click()"
   )
+  await context('.modbus-config-list-pane')
   await click('新增配置')
   await input('配置名称', '电机 A')
-  await click('添加分组')
-  await input('分组名称', '初始化')
-  await click('添加指令')
+  assert.equal(
+    await run(`(() => {
+    const list = document.querySelector('.modbus-config-list-pane').getBoundingClientRect();
+    const detail = document.querySelector('.modbus-presets-config .modbus-preset-detail').getBoundingClientRect();
+    return list.right <= detail.left && Math.abs(list.top - detail.top) < 2;
+  })()`),
+    true,
+    'Configuration list and editor must be side by side'
+  )
+  assert.equal(
+    await run(
+      `Array.from(document.querySelectorAll('.modbus-presets-config button')).some(b => b.textContent === '添加分组' || b.textContent === '新增配置')`
+    ),
+    false,
+    'Management actions belong in the context menu'
+  )
+  await click('添加写入项')
   await input('指令名称', '启动')
   await input('指令地址', '0x100')
   await input('指令数据', '42')
   await click('保存指令')
   await until(`${scope}.querySelectorAll('.modbus-command-row').length === 1`)
-  await click('添加指令')
+  await click('添加写入项')
   await input('指令名称', '转速')
   await input('指令地址', '257')
   await input('指令数据', '123')
@@ -151,6 +166,16 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
     await run(`${scope}.querySelector('.modbus-command-row strong').textContent`),
     '转速'
   )
+  await context('.modbus-config-list-pane')
+  await click('新增配置')
+  await input('配置名称', '临时配置')
+  await context('[aria-label="设备配置列表"] tbody tr:last-child')
+  await click('删除配置')
+  assert.equal(
+    await run(`document.querySelectorAll('[aria-label="设备配置列表"] tbody tr').length`),
+    1
+  )
+  await context('[aria-label="设备配置列表"] tbody tr:first-child')
   await click('复制配置')
   assert.equal(
     await run(`document.querySelectorAll('[aria-label="设备配置列表"] tbody tr').length`),

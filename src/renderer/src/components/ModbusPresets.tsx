@@ -59,6 +59,7 @@ export function ModbusPresets({
     y: number
     group?: string
     command?: string
+    list?: boolean
   } | null>(null)
   const [groupEditor, setGroupEditor] = useState<{ id: string; name: string } | null>(null)
   useEffect(() => {
@@ -88,6 +89,17 @@ export function ModbusPresets({
       y: Math.max(0, Math.min(event.clientY, window.innerHeight - 200)),
       group,
       command
+    })
+  }
+  const openConfigMenu = (event: React.MouseEvent, id?: string): void => {
+    event.preventDefault()
+    event.stopPropagation()
+    if (busy || editor) return
+    if (id) setSelected(id)
+    setMenu({
+      x: Math.max(0, Math.min(event.clientX, window.innerWidth - 190)),
+      y: Math.max(0, Math.min(event.clientY, window.innerHeight - 150)),
+      list: true
     })
   }
   const preset = presets.find((item) => item.id === selected)
@@ -136,7 +148,8 @@ export function ModbusPresets({
       {error && <p role="alert">{error}</p>}
       <fieldset disabled={busy}>
         {!shortcuts && (
-          <div className="modbus-preset-tools">
+          <div className="modbus-config-list-pane" onContextMenu={(event) => openConfigMenu(event)}>
+            <p className="modbus-preset-note">右键新增、复制或删除配置</p>
             <div className="modbus-preset-list">
               <table aria-label="设备配置列表">
                 <thead>
@@ -149,7 +162,11 @@ export function ModbusPresets({
                 </thead>
                 <tbody>
                   {presets.map((item) => (
-                    <tr key={item.id} className={item.id === selected ? 'selected' : ''}>
+                    <tr
+                      key={item.id}
+                      className={item.id === selected ? 'selected' : ''}
+                      onContextMenu={(event) => openConfigMenu(event, item.id)}
+                    >
                       <td>
                         <button
                           aria-pressed={item.id === selected}
@@ -170,67 +187,12 @@ export function ModbusPresets({
                   ))}
                 </tbody>
               </table>
-              {!presets.length && <p>暂无设备配置，点击“新增配置”开始。</p>}
+              {!presets.length && <p>暂无设备配置，右键新建。</p>}
             </div>
-            <button
-              onClick={() => {
-                const item: ModbusPreset = {
-                  id: crypto.randomUUID(),
-                  name: `设备配置 ${presets.length + 1}`,
-                  slave: 1,
-                  wordOrder: 'cdab',
-                  groups: []
-                }
-                if (save([...presets, item])) {
-                  setSelected(item.id)
-                  setEditor(null)
-                }
-              }}
-            >
-              新增配置
-            </button>
-            {preset && (
-              <>
-                <button
-                  onClick={() => {
-                    const copy = {
-                      ...preset,
-                      id: crypto.randomUUID(),
-                      name: `${preset.name} 副本`,
-                      groups: preset.groups.map((group) => ({
-                        ...group,
-                        id: crypto.randomUUID(),
-                        commands: group.commands.map((command) => ({
-                          ...command,
-                          id: crypto.randomUUID()
-                        }))
-                      }))
-                    }
-                    if (save([...presets, copy])) {
-                      setSelected(copy.id)
-                      setEditor(null)
-                    }
-                  }}
-                >
-                  复制配置
-                </button>
-                <button
-                  onClick={() => {
-                    const next = presets.filter((item) => item.id !== preset.id)
-                    if (save(next)) {
-                      setSelected(next[0]?.id || '')
-                      setEditor(null)
-                    }
-                  }}
-                >
-                  删除配置
-                </button>
-              </>
-            )}
           </div>
         )}
         {preset && (
-          <>
+          <div className="modbus-preset-detail">
             <div className="modbus-preset-tools">
               {!shortcuts && (
                 <>
@@ -283,16 +245,7 @@ export function ModbusPresets({
                 </>
               )}
               {!shortcuts && (
-                <button
-                  onClick={() =>
-                    groups([
-                      ...preset.groups,
-                      { id: crypto.randomUUID(), name: '新分组', commands: [] }
-                    ])
-                  }
-                >
-                  添加分组
-                </button>
+                <button onClick={() => newCommand(preset.groups[0]?.id || '')}>添加写入项</button>
               )}
             </div>
             <p className="modbus-preset-note">
@@ -476,11 +429,14 @@ export function ModbusPresets({
                 ))}
               </section>
             ))}
-          </>
+          </div>
+        )}
+        {!shortcuts && !preset && (
+          <p className="modbus-config-empty">在左侧右键新建配置，或选择已有配置。</p>
         )}
       </fieldset>
       {busy && <button onClick={onCancel}>停止写入</button>}
-      {menu && preset && !busy && (
+      {menu && (preset || menu.list) && !busy && (
         <div
           className="context-menu modbus-shortcut-menu"
           role="menu"
@@ -492,71 +448,139 @@ export function ModbusPresets({
             event.stopPropagation()
           }}
         >
-          <button
-            role="menuitem"
-            onClick={() => setGroupEditor({ id: crypto.randomUUID(), name: '新分组' })}
-          >
-            添加分组
-          </button>
-          <button role="menuitem" onClick={() => newCommand(menu.group || '')}>
-            添加指令
-          </button>
-          {menu.group && (
+          {menu.list ? (
             <>
-              {!menu.command && (
+              <button
+                onClick={() => {
+                  const item: ModbusPreset = {
+                    id: crypto.randomUUID(),
+                    name: `设备配置 ${presets.length + 1}`,
+                    slave: 1,
+                    wordOrder: 'cdab',
+                    groups: []
+                  }
+                  if (save([...presets, item])) {
+                    setSelected(item.id)
+                    setEditor(null)
+                  }
+                }}
+              >
+                新增配置
+              </button>
+              {preset && (
                 <>
                   <button
-                    role="menuitem"
                     onClick={() => {
-                      const group = preset.groups.find((item) => item.id === menu.group)
-                      if (group) setGroupEditor({ id: group.id, name: group.name })
+                      const copy = {
+                        ...preset,
+                        id: crypto.randomUUID(),
+                        name: `${preset.name} 副本`,
+                        groups: preset.groups.map((group) => ({
+                          ...group,
+                          id: crypto.randomUUID(),
+                          commands: group.commands.map((command) => ({
+                            ...command,
+                            id: crypto.randomUUID()
+                          }))
+                        }))
+                      }
+                      if (save([...presets, copy])) {
+                        setSelected(copy.id)
+                        setEditor(null)
+                      }
                     }}
                   >
-                    重命名分组
+                    复制配置
                   </button>
                   <button
-                    role="menuitem"
-                    className="danger"
-                    onClick={() => groups(preset.groups.filter((item) => item.id !== menu.group))}
-                  >
-                    删除分组
-                  </button>
-                </>
-              )}
-              {menu.command && (
-                <>
-                  <button
-                    role="menuitem"
                     onClick={() => {
-                      const command = preset.groups
-                        .find((item) => item.id === menu.group)
-                        ?.commands.find((item) => item.id === menu.command)
-                      if (command) setEditor({ group: menu.group!, command: { ...command } })
+                      const next = presets.filter((item) => item.id !== preset.id)
+                      if (save(next)) {
+                        setSelected(next[0]?.id || '')
+                        setEditor(null)
+                      }
                     }}
                   >
-                    编辑指令
-                  </button>
-                  <button
-                    role="menuitem"
-                    className="danger"
-                    onClick={() =>
-                      groups(
-                        preset.groups.map((group) =>
-                          group.id === menu.group
-                            ? {
-                                ...group,
-                                commands: group.commands.filter((item) => item.id !== menu.command)
-                              }
-                            : group
-                        )
-                      )
-                    }
-                  >
-                    删除指令
+                    删除配置
                   </button>
                 </>
               )}
             </>
+          ) : (
+            preset && (
+              <>
+                <button
+                  role="menuitem"
+                  onClick={() => setGroupEditor({ id: crypto.randomUUID(), name: '新分组' })}
+                >
+                  添加分组
+                </button>
+                <button role="menuitem" onClick={() => newCommand(menu.group || '')}>
+                  添加指令
+                </button>
+                {menu.group && (
+                  <>
+                    {!menu.command && (
+                      <>
+                        <button
+                          role="menuitem"
+                          onClick={() => {
+                            const group = preset.groups.find((item) => item.id === menu.group)
+                            if (group) setGroupEditor({ id: group.id, name: group.name })
+                          }}
+                        >
+                          重命名分组
+                        </button>
+                        <button
+                          role="menuitem"
+                          className="danger"
+                          onClick={() =>
+                            groups(preset.groups.filter((item) => item.id !== menu.group))
+                          }
+                        >
+                          删除分组
+                        </button>
+                      </>
+                    )}
+                    {menu.command && (
+                      <>
+                        <button
+                          role="menuitem"
+                          onClick={() => {
+                            const command = preset.groups
+                              .find((item) => item.id === menu.group)
+                              ?.commands.find((item) => item.id === menu.command)
+                            if (command) setEditor({ group: menu.group!, command: { ...command } })
+                          }}
+                        >
+                          编辑指令
+                        </button>
+                        <button
+                          role="menuitem"
+                          className="danger"
+                          onClick={() =>
+                            groups(
+                              preset.groups.map((group) =>
+                                group.id === menu.group
+                                  ? {
+                                      ...group,
+                                      commands: group.commands.filter(
+                                        (item) => item.id !== menu.command
+                                      )
+                                    }
+                                  : group
+                              )
+                            )
+                          }
+                        >
+                          删除指令
+                        </button>
+                      </>
+                    )}
+                  </>
+                )}
+              </>
+            )
           )}
         </div>
       )}
