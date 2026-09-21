@@ -288,7 +288,7 @@ export function ModbusPanel({ ports, onSend }: Props): React.JSX.Element {
   const [lastResponseMs, setLastResponseMs] = useState<number | null>(null)
   const clientRef = useRef(new ModbusClient())
   const [presetBusy, setPresetBusy] = useState(false)
-  const [configManagerOpen, setConfigManagerOpen] = useState(false)
+  const [sidebarTab, setSidebarTab] = useState<'shortcuts' | 'config'>('shortcuts')
   const presetRun = useRef({ busy: false, cancelled: false })
   const connectionRevision = useRef({ value: 0 })
   const onSendRef = useRef(onSend)
@@ -732,7 +732,6 @@ export function ModbusPanel({ ports, onSend }: Props): React.JSX.Element {
           </span>
         </div>
         <nav className="modbus-menubar" aria-label="Modbus RTU 菜单">
-          <button onClick={() => setConfigManagerOpen(true)}>配置管理器</button>
           <div className="modbus-menu-root">
             <button onClick={() => setOpenMenu(openMenu === 'config' ? null : 'config')}>
               配置
@@ -831,53 +830,94 @@ export function ModbusPanel({ ports, onSend }: Props): React.JSX.Element {
         </time>
       </div>
 
-      <ModbusPresets
-        mode="shortcuts"
-        slave={normalizedSlave}
-        wordOrder={wordOrder}
-        connected={!!targetPort}
-        busy={presetBusy}
-        target={targetPort}
-        onRun={runPreset}
-        onCancel={() => {
-          presetRun.current.cancelled = true
-          setMessage('正在停止：等待当前指令响应，不再发送后续指令')
-        }}
-      />
-      {configManagerOpen && (
-        <div className="modbus-dialog-backdrop">
-          <section className="modbus-config-manager" role="dialog" aria-label="设备配置管理器">
-            <header>
-              <strong>配置管理器</strong>
-              <button aria-label="关闭配置管理器" onClick={() => setConfigManagerOpen(false)}>
-                ×
-              </button>
-            </header>
-            <ModbusPresets
-              mode="config"
-              onCapture={() =>
-                captureModbusPreset(
-                  values,
-                  definitions,
-                  normalizedSlave,
-                  wordOrder,
-                  `${mapName.replace(/\.[^.]+$/, '')} · ID ${normalizedSlave}`
-                )
-              }
-              slave={normalizedSlave}
-              wordOrder={wordOrder}
-              connected={!!targetPort}
-              busy={presetBusy}
-              target={targetPort}
-              onRun={runPreset}
-              onCancel={() => {
-                presetRun.current.cancelled = true
-              }}
-            />
-            <p role="status">{message}</p>
-          </section>
+      <aside className="modbus-sidebar">
+        <nav
+          className="modbus-sidebar-tabs"
+          role="tablist"
+          aria-label="Modbus 二级导航"
+          onKeyDown={(event) => {
+            if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+            event.preventDefault()
+            const next =
+              event.key === 'Home'
+                ? 'shortcuts'
+                : event.key === 'End'
+                  ? 'config'
+                  : sidebarTab === 'shortcuts'
+                    ? 'config'
+                    : 'shortcuts'
+            setSidebarTab(next)
+            event.currentTarget
+              .querySelector<HTMLButtonElement>(`[data-modbus-tab="${next}"]`)
+              ?.focus()
+          }}
+        >
+          {(['shortcuts', 'config'] as const).map((tab) => (
+            <button
+              key={tab}
+              id={`modbus-tab-${tab}`}
+              data-modbus-tab={tab}
+              role="tab"
+              aria-selected={sidebarTab === tab}
+              aria-controls={`modbus-panel-${tab}`}
+              tabIndex={sidebarTab === tab ? 0 : -1}
+              onClick={() => setSidebarTab(tab)}
+            >
+              {tab === 'shortcuts' ? '快捷指令' : '配置管理器'}
+            </button>
+          ))}
+        </nav>
+        <div
+          className="modbus-sidebar-panel"
+          id="modbus-panel-shortcuts"
+          role="tabpanel"
+          aria-labelledby="modbus-tab-shortcuts"
+          hidden={sidebarTab !== 'shortcuts'}
+        >
+          <ModbusPresets
+            mode="shortcuts"
+            slave={normalizedSlave}
+            wordOrder={wordOrder}
+            connected={!!targetPort}
+            busy={presetBusy}
+            target={targetPort}
+            onRun={runPreset}
+            onCancel={() => {
+              presetRun.current.cancelled = true
+              setMessage('正在停止：等待当前指令响应，不再发送后续指令')
+            }}
+          />
         </div>
-      )}
+        <div
+          className="modbus-sidebar-panel"
+          id="modbus-panel-config"
+          role="tabpanel"
+          aria-labelledby="modbus-tab-config"
+          hidden={sidebarTab !== 'config'}
+        >
+          <ModbusPresets
+            mode="config"
+            onCapture={() =>
+              captureModbusPreset(
+                values,
+                definitions,
+                normalizedSlave,
+                wordOrder,
+                `${mapName.replace(/\.[^.]+$/, '')} · ID ${normalizedSlave}`
+              )
+            }
+            slave={normalizedSlave}
+            wordOrder={wordOrder}
+            connected={!!targetPort}
+            busy={presetBusy}
+            target={targetPort}
+            onRun={runPreset}
+            onCancel={() => {
+              presetRun.current.cancelled = true
+            }}
+          />
+        </div>
+      </aside>
       <div className="modbus-table-wrap">
         <table className="modbus-register-table">
           <thead>

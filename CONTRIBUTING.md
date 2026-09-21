@@ -39,7 +39,7 @@ Modbus 设备预设的数据校验、编码与顺序执行位于 `src/renderer/s
 界面位于 `components/ModbusPresets.tsx`，复用 `ModbusPanel` 的 RTU 客户端。
 侧栏内容区最小宽度由 `sidebar-layout.ts` 统一定义，普通 TAB 和 Modbus 拖拽侧栏应保持一致。
 修改后运行 `bun test tests/modbus-presets.test.ts tests/serial-protocols.test.ts`，构建后执行
-`bun run test:ui:serial`，覆盖栏宽拖拽与恢复、空白右键新建、分组编辑、弹窗按钮布局、主页寄存器保存、配置列表切换、重载保存和寄存器数据精确还原；真实设备仍需单独验收。
+`bun run test:ui:serial`，覆盖二级 TAB 切换与状态保留、栏宽拖拽与恢复、空白右键新建、分组编辑、弹窗按钮布局、主页寄存器保存、配置列表切换、重载保存和寄存器数据精确还原；真实设备仍需单独验收。
 
 实时曲线使用独立的 `plot-store.ts` 环形缓存，`plot-data.ts` 提供原始区间统计和按像素保留峰谷的降采样，计算通道在 QuickJS Worker 中批量执行。修改曲线时运行 `bun test tests/plot-data.test.ts`，生产构建后运行 `bun run test:ui:plot` 和 `bun run test:ui:serial`。曲线 UI 测试覆盖游标交叉/重合、冻结/恢复、日志独立性、计算通道以及 100,000 点 × 8 通道，并将截图和延迟指标写入 `.tmp/ui-smoke/`。这些测试使用模拟数据，不代表硬件采样精度验收。
 

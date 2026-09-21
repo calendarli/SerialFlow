@@ -13,8 +13,7 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
       await new Promise((resolve) => setTimeout(resolve, 50))
     }
   }
-  const scope =
-    "(document.querySelector('.modbus-config-manager') || document.querySelector('.modbus-presets-shortcuts'))"
+  const scope = "document.querySelector('.modbus-sidebar-panel:not([hidden])')"
   const click = async (text: string): Promise<void> => {
     await run(
       `Array.from(${scope}.querySelectorAll('button')).find(b => b.textContent === ${JSON.stringify(text)}).click()`
@@ -34,9 +33,27 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
     `localStorage.setItem('serialflow.modbus.sidebarWidth', '220'); document.querySelector('[aria-label="Modbus RTU"]').click()`
   )
   await until(`Boolean(document.querySelector('.modbus-presets'))`)
+  assert.equal(
+    await run(
+      "Boolean(document.querySelector('.modbus-menubar button')?.textContent.includes('配置管理器'))"
+    ),
+    false
+  )
+  await run(
+    "document.querySelector('[aria-label=\"Modbus 二级导航\"]').dispatchEvent(new KeyboardEvent('keydown', {key:'ArrowRight',bubbles:true}))"
+  )
+  assert.equal(
+    await run("document.querySelector('#modbus-tab-config').getAttribute('aria-selected')"),
+    'true'
+  )
+  assert.equal(await run("document.querySelector('#modbus-panel-shortcuts').hidden"), true)
+  assert.equal(await run("Boolean(document.querySelector('[role=dialog]'))"), false)
+  await run(
+    "document.querySelector('[aria-label=\"Modbus 二级导航\"]').dispatchEvent(new KeyboardEvent('keydown', {key:'ArrowLeft',bubbles:true}))"
+  )
   const handle = '[aria-label="调整快捷指令栏宽度"]'
   assert.equal(
-    await run(`document.querySelector('.modbus-presets-shortcuts').getBoundingClientRect().width`),
+    await run(`document.querySelector('.modbus-sidebar').getBoundingClientRect().width`),
     330,
     'Previously saved narrow widths must be raised to the shared tab minimum'
   )
@@ -69,12 +86,12 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
   })
   window.webContents.sendInputEvent({ type: 'mouseMove', x: grip.x + 150, y: grip.y })
   assert.equal(
-    await run(`document.querySelector('.modbus-presets-shortcuts').getBoundingClientRect().width`),
+    await run(`document.querySelector('.modbus-sidebar').getBoundingClientRect().width`),
     430
   )
   assert.equal(
     await run(`(() => {
-    const sidebar = document.querySelector('.modbus-presets').getBoundingClientRect();
+    const sidebar = document.querySelector('.modbus-sidebar').getBoundingClientRect();
     const toolbar = document.querySelector('.modbus-toolbar').getBoundingClientRect();
     return sidebar.right <= toolbar.left && Math.abs(sidebar.top - toolbar.top) < 2;
   })()`),
@@ -130,9 +147,7 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
   await click('删除指令')
   assert.equal(await run("document.querySelectorAll('.modbus-command-trigger').length"), 1)
   const openManager = async (): Promise<void> => {
-    await run(
-      "Array.from(document.querySelectorAll('.modbus-menubar button')).find(b => b.textContent === '配置管理器').click()"
-    )
+    await run("document.querySelector('#modbus-tab-config').click()")
   }
   await openManager()
   await context('.modbus-config-list-pane')
@@ -154,7 +169,7 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
     true
   )
   assert.equal(await run("Boolean(document.querySelector('[aria-label=配置编辑]'))"), false)
-  await run("document.querySelector('[aria-label=关闭配置管理器]').click()")
+  await run("document.querySelector('#modbus-tab-shortcuts').click()")
   const originalWords = Array.from({ length: 50 }, () => 0)
   originalWords[0] = 42
   originalWords[1] = 0x5678
@@ -205,7 +220,7 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
   )
   await context('[aria-label=设备配置列表] tbody tr:first-child')
   await click('删除配置')
-  await run("document.querySelector('[aria-label=关闭配置管理器]').click()")
+  await run("document.querySelector('#modbus-tab-shortcuts').click()")
   await run(
     "Array.from(document.querySelectorAll('.modbus-menubar button')).find(b => b.textContent === '操作').click()"
   )
@@ -240,6 +255,21 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
   await context('.modbus-config-list-pane')
   await click('保存配置')
   await until("document.querySelectorAll('[aria-label=设备配置列表] tbody tr').length === 2")
+  await run("document.querySelector('#modbus-tab-shortcuts').click()")
+  assert.equal(
+    await run(
+      "document.querySelectorAll('#modbus-panel-shortcuts .modbus-command-trigger').length"
+    ),
+    1
+  )
+  await openManager()
+  assert.equal(
+    await run(
+      "document.querySelector('[aria-label=设备配置列表] tbody tr:last-child').classList.contains('selected')"
+    ),
+    true,
+    'Switching tabs must retain the selected configuration'
+  )
   await context('[aria-label=设备配置列表] tbody tr:last-child')
   await click('删除配置')
   assert.equal(
@@ -271,7 +301,7 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
   await run('document.querySelector(\'[aria-label="Modbus RTU"]\').click()')
   await until("document.querySelectorAll('.modbus-command-trigger').length === 1")
   assert.equal(
-    await run("document.querySelector('.modbus-presets-shortcuts').getBoundingClientRect().width"),
+    await run("document.querySelector('.modbus-sidebar').getBoundingClientRect().width"),
     430
   )
   await openManager()
@@ -305,7 +335,7 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
     join(process.cwd(), '.tmp/ui-smoke/modbus-config-manager.png'),
     (await window.webContents.capturePage()).toPNG()
   )
-  await run("document.querySelector('[aria-label=关闭配置管理器]').click()")
+  await run("document.querySelector('#modbus-tab-shortcuts').click()")
   await until("!document.querySelector('.modbus-command-trigger').disabled")
   await click('使能')
   await until("document.querySelector('.modbus-status').textContent.includes('写入完成 1/1')")

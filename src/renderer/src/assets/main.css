@@ -1945,6 +1945,64 @@ footer > span:first-child {
   border-radius: 8px;
   background: var(--surface);
 }
+.modbus-sidebar {
+  grid-column: 1;
+  grid-row: 1 / 5;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.modbus-sidebar-tabs {
+  display: flex;
+  flex: none;
+  gap: 4px;
+  padding: 8px 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.modbus-sidebar-tabs button {
+  flex: 1;
+  padding: 10px 6px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 600;
+}
+.modbus-sidebar-tabs button[aria-selected='true'] {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+  background: var(--primary-soft);
+}
+.modbus-sidebar-tabs button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+.modbus-sidebar-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+.modbus-sidebar-panel[hidden] {
+  display: none;
+}
+.modbus-sidebar-panel > .modbus-presets {
+  border: 0;
+  border-radius: 0;
+  width: 100%;
+  flex: 1;
+}
+.modbus-sidebar-panel > .modbus-presets > header > strong {
+  display: none;
+}
 .modbus-monitor > .modbus-toolbar,
 .modbus-monitor > .modbus-status,
 .modbus-monitor > .modbus-table-wrap,
@@ -8530,22 +8588,7 @@ body.plot-measurement-body {
   backdrop-filter: none;
 }
 
-.modbus-config-manager {
-  display: flex;
-  flex-direction: column;
-  width: min(760px, 94vw);
-  height: min(720px, 85vh);
-  max-height: 85vh;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface);
-  box-shadow: var(--shadow);
-}
-.modbus-config-manager > header {
-  height: 48px;
-  padding: 0 16px;
-}
-.modbus-config-manager > .modbus-presets {
+.modbus-sidebar-panel > .modbus-presets-config {
   border: 0;
   flex: 1;
   display: flex;
@@ -8586,13 +8629,6 @@ body.plot-measurement-body {
 .modbus-config-empty {
   color: var(--muted);
   font-size: 13px;
-}
-.modbus-config-manager > p {
-  padding: 8px 16px;
-  margin: 0;
-  border-top: 1px solid var(--border);
-  font-size: 12px;
-  overflow-wrap: anywhere;
 }
 .modbus-command-trigger {
   flex: 1;
