@@ -129,117 +129,126 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
   await context('.modbus-presets-shortcuts .modbus-command-row:last-child')
   await click('删除指令')
   assert.equal(await run("document.querySelectorAll('.modbus-command-trigger').length"), 1)
-  await run(
-    "Array.from(document.querySelectorAll('.modbus-menubar button')).find(b => b.textContent === '配置管理器').click()"
-  )
+  const openManager = async (): Promise<void> => {
+    await run(
+      "Array.from(document.querySelectorAll('.modbus-menubar button')).find(b => b.textContent === '配置管理器').click()"
+    )
+  }
+  await openManager()
   await context('.modbus-config-list-pane')
-  await click('新增配置')
-  await input('配置名称', '电机 A')
-  assert.equal(
-    await run(`Boolean(document.querySelector('[aria-label="配置编辑"] .modbus-preset-detail'))`),
-    true,
-    'Configuration fields must be inside the new configuration dialog'
-  )
   assert.equal(
     await run(
-      `Array.from(document.querySelectorAll('.modbus-presets-config button')).some(b => b.textContent === '添加分组' || b.textContent === '新增配置')`
-    ),
-    false,
-    'Management actions belong in the context menu'
-  )
-  await click('添加写入项')
-  await input('指令名称', '启动')
-  await input('指令地址', '0x100')
-  await input('指令数据', '42')
-  await click('保存指令')
-  await until(`${scope}.querySelectorAll('.modbus-command-row').length === 1`)
-  await click('添加写入项')
-  await input('指令名称', '转速')
-  await input('指令地址', '257')
-  await input('指令数据', '123')
-  await click('保存指令')
-  await until(`${scope}.querySelectorAll('.modbus-command-row').length === 2`)
-  await run(
-    `(() => { const rows = ${scope}.querySelectorAll('.modbus-command-row'); const dataTransfer = new DataTransfer(); rows[1].querySelector('[draggable]').dispatchEvent(new DragEvent('dragstart', {bubbles:true, dataTransfer})); })()`
-  )
-  await run(
-    `${scope}.querySelector('.modbus-command-row').dispatchEvent(new DragEvent('drop', {bubbles:true, cancelable:true, dataTransfer:new DataTransfer()}))`
-  )
-  assert.equal(
-    await run(`${scope}.querySelector('.modbus-command-row strong').textContent`),
-    '转速'
-  )
-  await new Promise((resolve) => setTimeout(resolve, 150))
-  writeFileSync(
-    join(process.cwd(), '.tmp/ui-smoke/modbus-config-editor.png'),
-    (await window.webContents.capturePage()).toPNG()
-  )
-  await click('保存配置')
-  assert.equal(await run(`Boolean(document.querySelector('[aria-label="配置名称"]'))`), false)
-  await context('.modbus-config-list-pane')
-  await click('新增配置')
-  await input('配置名称', '不应保存')
-  await click('取消')
-  assert.equal(
-    await run(`document.querySelectorAll('[aria-label="设备配置列表"] tbody tr').length`),
-    1
-  )
-  await context('.modbus-config-list-pane')
-  await click('新增配置')
-  await input('配置名称', '临时配置')
-  await click('保存配置')
-  await context('[aria-label="设备配置列表"] tbody tr:last-child')
-  await click('删除配置')
-  assert.equal(
-    await run(`document.querySelectorAll('[aria-label="设备配置列表"] tbody tr').length`),
-    1
-  )
-  await context('[aria-label="设备配置列表"] tbody tr:first-child')
-  assert.equal(
-    await run(
-      `Array.from(document.querySelectorAll('[role="menu"] button')).some(button => button.textContent === '复制配置')`
+      "Array.from(document.querySelectorAll('[role=menu] button')).some(b => ['新增配置', '编辑配置', '复制配置'].includes(b.textContent))"
     ),
     false
   )
-  await click('编辑配置')
-  assert.equal(await run(`document.querySelector('[aria-label="配置名称"]').value`), '电机 A')
-  await input('配置名称', '取消编辑')
-  await click('取消')
-  assert.equal(
-    await run(`document.querySelector('[aria-label="设备配置列表"] tbody button').textContent`),
-    '电机 A'
-  )
-  await context('[aria-label="设备配置列表"] tbody tr:first-child')
-  await click('编辑配置')
-  await input('配置从站地址', '2')
   await click('保存配置')
+  assert.equal(
+    await run("document.querySelectorAll('[aria-label=设备配置列表] tbody tr').length"),
+    0
+  )
   assert.equal(
     await run(
-      `document.querySelector('[aria-label="设备配置列表"] tbody tr:first-child td:nth-child(2)').textContent`
+      "document.querySelector('.modbus-presets-config').textContent.includes('暂无有效寄存器数据')"
     ),
-    '2'
+    true
   )
-  await context('[aria-label="设备配置列表"] tbody tr:first-child')
-  await click('编辑配置')
-  await input('配置从站地址', '1')
-  await click('保存配置')
+  assert.equal(await run("Boolean(document.querySelector('[aria-label=配置编辑]'))"), false)
+  await run("document.querySelector('[aria-label=关闭配置管理器]').click()")
+  const originalWords = Array.from({ length: 50 }, () => 0)
+  originalWords[0] = 42
+  originalWords[1] = 0x5678
+  originalWords[2] = 0x1234
+  originalWords[3] = 0
+  originalWords[4] = 0x3fc0
+  const sent: number[][] = []
+  ipcMain.removeHandler('serial:write')
+  ipcMain.handle('serial:write', (_event, port: string, base64: string) => {
+    const request = new Uint8Array(Buffer.from(base64, 'base64'))
+    sent.push([...request])
+    const body =
+      request[1] === 3
+        ? new Uint8Array([
+            request[0],
+            3,
+            100,
+            ...originalWords.flatMap((word) => [word >> 8, word & 255])
+          ])
+        : request.slice(0, 6)
+    setTimeout(
+      () =>
+        window.webContents.send('serial:data', { path: port, chunks: [appendCrc(body, 'modbus')] }),
+      10
+    )
+  })
+  window.webContents.send('serial:status', { path: 'COM991', open: true })
+  await until("document.querySelector('.modbus-title').textContent.includes('COM991')")
+  await run(
+    "document.querySelector('.modbus-value').dispatchEvent(new MouseEvent('dblclick', {bubbles:true}))"
+  )
+  await run(
+    `(() => { const input = document.querySelector('.modbus-dialog input'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, '42'); input.dispatchEvent(new Event('input', {bubbles:true})); })()`
+  )
+  await run(
+    "Array.from(document.querySelectorAll('.modbus-dialog button')).find(b => b.textContent === '发送').click()"
+  )
+  await until("document.querySelector('.modbus-status').textContent.includes('written')")
+  await openManager()
   await context('.modbus-config-list-pane')
-  await click('新增配置')
-  await input('配置名称', '电机 B')
   await click('保存配置')
-  assert.equal(
-    await run(`document.querySelectorAll('[aria-label="设备配置列表"] tbody tr').length`),
-    2
-  )
-  await click('电机 A')
-  assert.equal(
+  assert.deepEqual(
     await run(
-      `document.querySelector('[aria-label="设备配置列表"] tr.selected button').textContent`
+      "JSON.parse(localStorage.getItem('serialflow.modbus.presets.v1'))[0].groups[0].commands.map(c => [c.address, c.value])"
     ),
-    '电机 A'
+    [['0', '42']],
+    'Confirmed manual writes must be captured without filling unread registers'
   )
-  await click('电机 B')
-  for (const target of [
+  await context('[aria-label=设备配置列表] tbody tr:first-child')
+  await click('删除配置')
+  await run("document.querySelector('[aria-label=关闭配置管理器]').click()")
+  await run(
+    "Array.from(document.querySelectorAll('.modbus-menubar button')).find(b => b.textContent === '操作').click()"
+  )
+  await run(
+    "Array.from(document.querySelectorAll('.modbus-menu-popover button')).find(b => b.textContent === '读取一次').click()"
+  )
+  await until("document.querySelector('.modbus-status').textContent.includes('Connected')")
+  await openManager()
+  await context('.modbus-config-list-pane')
+  await click('保存配置')
+  await until("document.querySelectorAll('[aria-label=设备配置列表] tbody tr').length === 1")
+  const saved = (await run(
+    "JSON.parse(localStorage.getItem('serialflow.modbus.presets.v1'))[0]"
+  )) as {
+    name: string
+    slave: number
+    wordOrder: string
+    groups: Array<{ commands: Array<{ address: string; value: string; format: string }> }>
+  }
+  assert.equal(saved.slave, 1)
+  assert.equal(saved.wordOrder, 'cdab')
+  assert.deepEqual(
+    saved.groups[0].commands
+      .slice(0, 3)
+      .map(({ address, value, format }) => ({ address, value, format })),
+    [
+      { address: '0', value: '42', format: 'hex16' },
+      { address: '1', value: '305419896', format: 'int32' },
+      { address: '3', value: '1.5', format: 'float32' }
+    ]
+  )
+  await context('.modbus-config-list-pane')
+  await click('保存配置')
+  await until("document.querySelectorAll('[aria-label=设备配置列表] tbody tr').length === 2")
+  await context('[aria-label=设备配置列表] tbody tr:last-child')
+  await click('删除配置')
+  assert.equal(
+    await run("document.querySelectorAll('[aria-label=设备配置列表] tbody tr').length"),
+    1
+  )
+  await context('.modbus-config-list-pane')
+  await click('保存配置')
+  for (const cell of [
     'td:nth-child(1)',
     'td:nth-child(2)',
     'td:nth-child(3)',
@@ -247,84 +256,73 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
     ''
   ]) {
     await run(
-      `document.querySelector('[aria-label="设备配置列表"] tbody tr:first-child ${target}').click()`
+      `document.querySelector('[aria-label=设备配置列表] tbody tr:first-child ${cell}').click()`
     )
     assert.equal(
       await run(
-        `document.querySelector('[aria-label="设备配置列表"] tr.selected button').textContent`
+        "document.querySelector('[aria-label=设备配置列表] tr.selected button').textContent"
       ),
-      '电机 A',
-      `Clicking the row area ${target} must switch presets`
+      saved.name
     )
-    await click('电机 B')
+    await run("document.querySelector('[aria-label=设备配置列表] tbody tr:last-child').click()")
   }
   window.webContents.reload()
-  await until(`Boolean(document.querySelector('[aria-label="Modbus RTU"]'))`)
-  await run(`document.querySelector('[aria-label="Modbus RTU"]').click()`)
+  await until('Boolean(document.querySelector(\'[aria-label="Modbus RTU"]\'))')
+  await run('document.querySelector(\'[aria-label="Modbus RTU"]\').click()')
   await until("document.querySelectorAll('.modbus-command-trigger').length === 1")
   assert.equal(
-    await run(`document.querySelector('.modbus-presets-shortcuts').getBoundingClientRect().width`),
-    430,
-    'Dragged width must survive reload'
+    await run("document.querySelector('.modbus-presets-shortcuts').getBoundingClientRect().width"),
+    430
   )
-  await run(
-    "Array.from(document.querySelectorAll('.modbus-menubar button')).find(b => b.textContent === '配置管理器').click()"
-  )
-  await until(`document.querySelectorAll('[aria-label="设备配置列表"] tbody tr').length === 2`)
-  assert.equal(
-    await run(`document.querySelectorAll('[aria-label="设备配置列表"] tbody tr').length`),
-    2
-  )
-  const sent: number[][] = []
-  ipcMain.removeHandler('serial:write')
-  ipcMain.handle('serial:write', (_event, port: string, base64: string) => {
-    const request = new Uint8Array(Buffer.from(base64, 'base64'))
-    sent.push([...request])
-    setTimeout(
-      () =>
-        window.webContents.send('serial:data', {
-          path: port,
-          chunks: [appendCrc(request.slice(0, 6), 'modbus')]
-        }),
-      30
-    )
-  })
+  await openManager()
+  await until("document.querySelectorAll('[aria-label=设备配置列表] tbody tr').length === 2")
   window.webContents.send('serial:status', { path: 'COM991', open: true })
   await until(
-    `!Array.from(document.querySelectorAll('.modbus-presets button')).find(b => b.textContent.startsWith('应用并写入')).disabled`
+    "!Array.from(document.querySelectorAll('.modbus-presets-config button')).find(b => b.textContent.startsWith('应用并写入')).disabled"
   )
-  await click('应用并写入配置（2）')
-  await until(`document.querySelector('.modbus-status').textContent.includes('写入完成 2/2')`)
+  sent.length = 0
+  const count = saved.groups[0].commands.length
+  await click(`应用并写入配置（${count}）`)
+  await until(
+    `document.querySelector('.modbus-status').textContent.includes('写入完成 ${count}/${count}')`
+  )
+  const restored: number[] = []
+  for (const request of sent) {
+    const address = (request[2] << 8) | request[3]
+    if (request[1] === 6) restored[address] = (request[4] << 8) | request[5]
+    else {
+      restored[address] = (request[7] << 8) | request[8]
+      restored[address + 1] = (request[9] << 8) | request[10]
+    }
+  }
   assert.deepEqual(
-    sent.map((frame) => (frame[2] << 8) | frame[3]),
-    [257, 256]
+    restored,
+    originalWords,
+    'Saved homepage values must restore the exact original registers'
   )
   await new Promise((resolve) => setTimeout(resolve, 150))
   writeFileSync(
     join(process.cwd(), '.tmp/ui-smoke/modbus-config-manager.png'),
     (await window.webContents.capturePage()).toPNG()
   )
-  await run(`document.querySelector('[aria-label="关闭配置管理器"]').click()`)
+  await run("document.querySelector('[aria-label=关闭配置管理器]').click()")
   await until("!document.querySelector('.modbus-command-trigger').disabled")
   await click('使能')
   await until("document.querySelector('.modbus-status').textContent.includes('写入完成 1/1')")
-  assert.deepEqual(
-    sent.map((frame) => (frame[2] << 8) | frame[3]),
-    [257, 256, 10]
-  )
-  assert.equal(sent[2][5], 2, 'Quick command edits must be saved independently of device presets')
+  assert.equal(sent.at(-1)![3], 10)
+  assert.equal(sent.at(-1)![5], 2)
   window.webContents.send('serial:status', { path: 'COM991', open: false })
-  await until(`document.querySelector('.modbus-command-trigger').disabled`)
+  await until("document.querySelector('.modbus-command-trigger').disabled")
   await context('.modbus-command-trigger')
   await new Promise((resolve) => setTimeout(resolve, 150))
   writeFileSync(
     join(process.cwd(), '.tmp/ui-smoke/modbus-shortcut-menu.png'),
     (await window.webContents.capturePage()).toPNG()
   )
-  await run(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))`)
-  await until(`!document.querySelector('.modbus-shortcut-menu')`)
+  await run("window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))")
+  await until("!document.querySelector('.modbus-shortcut-menu')")
   await new Promise((resolve) => setTimeout(resolve, 150))
   console.log(
-    'Modbus presets: edit, reorder, copy, reload, acknowledged batch writes and disconnected controls passed'
+    'Modbus: homepage capture, exact register restoration, list selection, persistence and quick controls passed'
   )
 }

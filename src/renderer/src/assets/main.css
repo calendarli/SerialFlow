@@ -8571,35 +8571,6 @@ body.plot-measurement-body {
   align-self: flex-end;
   margin-top: 12px;
 }
-.modbus-config-editor {
-  display: flex;
-  flex-direction: column;
-  width: min(720px, 90vw);
-  max-height: 85vh;
-  padding: 18px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface);
-  box-shadow: var(--shadow);
-}
-.modbus-config-editor > fieldset {
-  min-height: 0;
-  overflow: auto;
-  margin-top: 12px;
-}
-.modbus-config-editor > footer {
-  height: auto;
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 14px;
-  padding: 12px 0 0;
-}
-.modbus-config-editor > footer button {
-  flex: 0 0 auto;
-  min-width: 72px;
-  white-space: nowrap;
-}
 .modbus-config-list-pane .modbus-preset-list {
   max-height: none;
 }

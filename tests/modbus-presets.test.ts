@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   encodeModbusCommand,
+  captureModbusPreset,
   moveItem,
   parseModbusPresets,
   runModbusCommands,
@@ -18,6 +19,43 @@ const command: ModbusCommand = {
   format: 'uint32'
 }
 describe('Modbus device presets', () => {
+  test('captures exact typed homepage values and preserves 32-bit words in both orders', () => {
+    for (const order of ['abcd', 'cdab'] as const) {
+      for (const [format, value] of [
+        ['float32', '-0'],
+        ['float32', '1.23456789'],
+        ['int32', '-2147483648'],
+        ['uint32', '4294967295']
+      ] as const) {
+        const original = encodeModbusCommand({ ...command, address: '1', format, value }, 7, order)
+        const snapshot = captureModbusPreset(
+          [0, ...original.words, undefined],
+          { 1: { alias: '参数', format, words: 2 } },
+          7,
+          order,
+          '设备'
+        )
+        const captured = snapshot.groups[0].commands
+        expect(captured).toHaveLength(2)
+        expect(captured[0].value).toBe('0')
+        expect(captured[1].name).toBe('参数')
+        expect(encodeModbusCommand(captured[1], snapshot.slave, snapshot.wordOrder).words).toEqual(
+          original.words
+        )
+      }
+    }
+  })
+  test('does not create snapshots from missing data or incomplete/non-finite wide registers', () => {
+    expect(() => captureModbusPreset([undefined], {}, 1, 'abcd', '设备')).toThrow('暂无有效')
+    const definitions = { 0: { format: 'float32' as const, words: 2 as const } }
+    expect(() => captureModbusPreset([1, undefined], definitions, 1, 'abcd', '设备')).toThrow(
+      '不完整'
+    )
+    expect(() => captureModbusPreset([undefined, 1], definitions, 1, 'abcd', '设备')).toThrow(
+      '不完整'
+    )
+    expect(() => captureModbusPreset([0x7fc0, 0], definitions, 1, 'abcd', '设备')).toThrow()
+  })
   test('blank-area creation uses an ungrouped group and edits can move commands without duplicates', () => {
     const first = saveModbusCommand([], '', command)
     expect(first[0].name).toBe('未分组')

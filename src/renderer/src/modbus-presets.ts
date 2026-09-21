@@ -20,6 +20,58 @@ export type ModbusPreset = {
 export const modbusPresetKey = 'serialflow.modbus.presets.v1'
 export const modbusShortcutKey = 'serialflow.modbus.shortcuts.v1'
 
+export function captureModbusPreset(
+  values: Array<number | undefined>,
+  definitions: Record<number, { alias?: string; format: ModbusFormat; words: 1 | 2 }>,
+  slave: number,
+  wordOrder: ModbusPreset['wordOrder'],
+  name: string
+): ModbusPreset {
+  const commands: ModbusCommand[] = []
+  for (let address = 0; address < values.length; address++) {
+    const first = values[address]
+    if (first === undefined) continue
+    if (definitions[address - 1]?.words === 2)
+      throw new Error(`地址 ${address - 1} 的 32 位数据不完整，请先读取寄存器`)
+    const definition = definitions[address]
+    const format = definition?.format || 'uint16'
+    let value = first
+    if (definition?.words === 2) {
+      const second = values[address + 1]
+      if (second === undefined)
+        throw new Error(`地址 ${address} 的 32 位数据不完整，请先读取寄存器`)
+      const view = new DataView(new ArrayBuffer(4))
+      view.setUint16(0, wordOrder === 'abcd' ? first : second)
+      view.setUint16(2, wordOrder === 'abcd' ? second : first)
+      value =
+        format === 'float32'
+          ? view.getFloat32(0)
+          : format === 'int32'
+            ? view.getInt32(0)
+            : view.getUint32(0)
+    }
+    const command: ModbusCommand = {
+      id: crypto.randomUUID(),
+      name: definition?.alias || `寄存器 ${address}`,
+      address: String(address),
+      value: Object.is(value, -0) ? '-0' : String(value),
+      format
+    }
+    encodeModbusCommand(command, slave, wordOrder)
+    commands.push(command)
+    if (definition?.words === 2) address++
+  }
+  if (!commands.length)
+    throw new Error('主页暂无有效寄存器数据，请先读取设备或写入寄存器后再保存配置')
+  return {
+    id: crypto.randomUUID(),
+    name,
+    slave,
+    wordOrder,
+    groups: [{ id: crypto.randomUUID(), name: '主页寄存器', commands }]
+  }
+}
+
 export function saveModbusCommand(
   groups: ModbusGroup[],
   groupId: string,

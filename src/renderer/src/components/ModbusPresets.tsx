@@ -21,6 +21,7 @@ type Props = {
   target: string
   onRun: (preset: ModbusPreset, commands: ModbusCommand[]) => Promise<void>
   onCancel: () => void
+  onCapture?: () => ModbusPreset
 }
 
 export function ModbusPresets({
@@ -31,7 +32,8 @@ export function ModbusPresets({
   busy,
   target,
   onRun,
-  onCancel
+  onCancel,
+  onCapture
 }: Props): React.JSX.Element {
   const shortcuts = mode === 'shortcuts'
   const storageKey = shortcuts ? modbusShortcutKey : modbusPresetKey
@@ -51,8 +53,6 @@ export function ModbusPresets({
   })
   const [presets, setPresets] = useState<ModbusPreset[]>(initial.presets)
   const [selected, setSelected] = useState(initial.presets[0]?.id || '')
-  const [configDraft, setConfigDraft] = useState<ModbusPreset | null>(null)
-  const editConfigLabel = '编辑配置'
   const [error, setError] = useState(initial.error)
   const [editor, setEditor] = useState<{ group: string; command: ModbusCommand } | null>(null)
   const [drag, setDrag] = useState<{ group: string; command?: string } | null>(null)
@@ -96,7 +96,7 @@ export function ModbusPresets({
   const openConfigMenu = (event: React.MouseEvent, id?: string): void => {
     event.preventDefault()
     event.stopPropagation()
-    if (busy || editor || configDraft) return
+    if (busy || editor) return
     if (id) setSelected(id)
     setMenu({
       x: Math.max(0, Math.min(event.clientX, window.innerWidth - 190)),
@@ -105,7 +105,7 @@ export function ModbusPresets({
     })
   }
   const selectedPreset = presets.find((item) => item.id === selected)
-  const preset = configDraft || selectedPreset
+  const preset = selectedPreset
   const save = (next: ModbusPreset[]): boolean => {
     try {
       localStorage.setItem(storageKey, JSON.stringify(next))
@@ -118,11 +118,6 @@ export function ModbusPresets({
     }
   }
   const update = (next: ModbusPreset): boolean => {
-    if (configDraft) {
-      setConfigDraft(next)
-      setError('')
-      return true
-    }
     return save(presets.map((item) => (item.id === next.id ? next : item)))
   }
   const groups = (next: ModbusGroup[]): void => {
@@ -392,7 +387,7 @@ export function ModbusPresets({
       <fieldset disabled={busy}>
         {!shortcuts && (
           <div className="modbus-config-list-pane" onContextMenu={(event) => openConfigMenu(event)}>
-            <p className="modbus-preset-note">右键新增、编辑或删除配置</p>
+            <p className="modbus-preset-note">右键保存主页当前寄存器地址和数据，或删除已有配置</p>
             <div className="modbus-preset-list">
               <table aria-label="设备配置列表">
                 <thead>
@@ -430,13 +425,13 @@ export function ModbusPresets({
                   ))}
                 </tbody>
               </table>
-              {!presets.length && <p>暂无设备配置，右键新建。</p>}
+              {!presets.length && <p>暂无设备配置，读取主页寄存器数据后右键保存。</p>}
             </div>
           </div>
         )}
         {shortcuts && detail}
         {!shortcuts && !preset && (
-          <p className="modbus-config-empty">在左侧右键新建配置，或选择已有配置。</p>
+          <p className="modbus-config-empty">选择配置后可应用并写入设备。</p>
         )}
       </fieldset>
       {!shortcuts && selectedPreset && (
@@ -457,52 +452,6 @@ export function ModbusPresets({
         </button>
       )}
       {busy && <button onClick={onCancel}>停止写入</button>}
-      {configDraft && (
-        <div className="modbus-dialog-backdrop">
-          <section className="modbus-config-editor" role="dialog" aria-label="配置编辑">
-            <header>
-              <strong>
-                {presets.some((item) => item.id === configDraft.id) ? '编辑配置' : '新增配置'}
-              </strong>
-            </header>
-            {error && <p role="alert">{error}</p>}
-            <fieldset disabled={busy}>{detail}</fieldset>
-            <footer>
-              <button
-                disabled={busy}
-                onClick={() => {
-                  setConfigDraft(null)
-                  setEditor(null)
-                  setError('')
-                }}
-              >
-                取消
-              </button>
-              <button
-                disabled={busy}
-                className="primary"
-                onClick={() => {
-                  if (!configDraft.name.trim()) return setError('请输入配置名称')
-                  const next = { ...configDraft, name: configDraft.name.trim() }
-                  if (
-                    save(
-                      presets.some((item) => item.id === next.id)
-                        ? presets.map((item) => (item.id === next.id ? next : item))
-                        : [...presets, next]
-                    )
-                  ) {
-                    setSelected(next.id)
-                    setConfigDraft(null)
-                  }
-                }}
-              >
-                保存配置
-              </button>
-              {busy && <button onClick={onCancel}>停止写入</button>}
-            </footer>
-          </section>
-        </div>
-      )}
       {menu && (preset || menu.list) && !busy && (
         <div
           className="context-menu modbus-shortcut-menu"
@@ -519,24 +468,23 @@ export function ModbusPresets({
             <>
               <button
                 onClick={() => {
-                  const item: ModbusPreset = {
-                    id: crypto.randomUUID(),
-                    name: `设备配置 ${presets.length + 1}`,
-                    slave: 1,
-                    wordOrder: 'cdab',
-                    groups: []
+                  try {
+                    if (!onCapture) return
+                    const item = onCapture()
+                    const baseName = item.name
+                    let suffix = 2
+                    while (presets.some((preset) => preset.name === item.name))
+                      item.name = `${baseName} (${suffix++})`
+                    if (save([...presets, item])) setSelected(item.id)
+                  } catch (error) {
+                    setError(error instanceof Error ? error.message : String(error))
                   }
-                  setConfigDraft(item)
-                  setEditor(null)
                 }}
               >
-                新增配置
+                保存配置
               </button>
               {preset && (
                 <>
-                  <button onClick={() => setConfigDraft(structuredClone(preset))}>
-                    {editConfigLabel}
-                  </button>
                   <button
                     onClick={() => {
                       const next = presets.filter((item) => item.id !== preset.id)

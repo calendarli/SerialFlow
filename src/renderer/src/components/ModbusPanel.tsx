@@ -5,6 +5,7 @@ import { ModbusPresets } from './ModbusPresets'
 import { sidebarPageMinimumWidth } from '../sidebar-layout'
 import {
   encodeModbusCommand,
+  captureModbusPreset,
   runModbusCommands,
   type ModbusCommand,
   type ModbusPreset
@@ -274,7 +275,9 @@ export function ModbusPanel({ ports, onSend }: Props): React.JSX.Element {
   const [mapName, setMapName] = useState('vsmd104_105_x4.mbp')
   const [scanRate, setScanRate] = useState(1000)
   const [polling, setPolling] = useState(false)
-  const [values, setValues] = useState<Array<number | undefined>>(() => Array(registerCount))
+  const [values, setValues] = useState<Array<number | undefined>>(() =>
+    Array.from({ length: registerCount })
+  )
   const [selectedAddress, setSelectedAddress] = useState(0)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; address: number } | null>(
     null
@@ -343,6 +346,7 @@ export function ModbusPanel({ ports, onSend }: Props): React.JSX.Element {
 
   useEffect(() => {
     const client = clientRef.current
+    setValues(Array.from({ length: registerCount }))
     const connection = connectionRevision.current
     const offData = window.api.onData(({ path, chunks }) => {
       if (path === targetPort) for (const chunk of chunks) client.push(chunk)
@@ -851,6 +855,15 @@ export function ModbusPanel({ ports, onSend }: Props): React.JSX.Element {
             </header>
             <ModbusPresets
               mode="config"
+              onCapture={() =>
+                captureModbusPreset(
+                  values,
+                  definitions,
+                  normalizedSlave,
+                  wordOrder,
+                  `${mapName.replace(/\.[^.]+$/, '')} · ID ${normalizedSlave}`
+                )
+              }
               slave={normalizedSlave}
               wordOrder={wordOrder}
               connected={!!targetPort}
