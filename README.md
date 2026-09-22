@@ -112,3 +112,75 @@ function process(data, context) {
 SerialFlow 原创代码采用 **GPL-3.0-only（仅第 3 版）**，完整条款见 [LICENSE](LICENSE)。
 
 [虚拟串口驱动](driver/SerialFlowVirtualSerial/README.md) 基于 Microsoft `serial/VirtualSerial2` 示例，保留其 **Microsoft Public License（Ms-PL）** 和版权声明。其他第三方依赖遵循各自许可证；固件工具来源与声明见 [NOTICE](resources/firmware/NOTICE.md)。
+
+## 项目架构与维护入口
+
+SerialFlow 串口调试工具，包含多串口交互、实时曲线、数据窗口、自动回复、固件烧录与虚拟串口。
+
+| 路径 | 职责 |
+| --- | --- |
+| `src/main/index.ts` | Electron 主进程入口、窗口与 IPC |
+| `src/preload/index.ts` | 受限 IPC 桥接 |
+| `src/preload/index.d.ts` | 界面调用类型 |
+| `src/renderer/src/App.tsx` | React 主界面与业务交互 |
+| `src/common/` | 跨进程共享类型与定义 |
+| `src/main/firmware/` | 固件校验与烧录任务 |
+| `src/renderer/src/scripts/` | QuickJS 脚本与 Worker |
+| `src/renderer/help/` | 帮助页面入口 |
+| `src/renderer/programming-manual/` | 编程手册入口 |
+| `driver/SerialFlowVirtualSerial/` | Windows UMDF 驱动和管理器 |
+| `tests/` | Bun 自动化测试 |
+
+### 项目约束
+
+- 使用 Bun 与 bun.lock，不使用 npm/npx，不生成 package-lock.json；具体开发流程参见 CONTRIBUTING.md。
+- 跨进程共享内容放在 src/common；帮助与编程手册是独立页面入口，行为变化同步更新。
+- 版本号、发布脚本、标签、驱动安装与构建产物上传不得自动执行。
+
+### 开发与构建入口
+
+使用 Electron、React、TypeScript 与 electron-vite；依赖及命令以 `package.json` 和现有锁文件为准。以下命令从项目根目录执行，按前述改动范围选择。
+
+```text
+bun install --frozen-lockfile
+bun run dev
+bun run format:check
+bun run lint
+bun run typecheck
+bun test
+bun run test:ui
+bun run test:ui:updates
+bun run test:ui:serial
+bun run test:ui:plot
+bun run build
+```
+
+安装包构建入口见 `package.json` 与 `electron-builder.yml`；存在平台配置不代表该平台已经验证。`out/`、`dist/` 是生成目录，`build/`、`resources/` 中的源资源不能整体当作输出删除。
+
+## Git、提交与 PR
+
+- 普通工作使用清晰的功能/修复分支；
+- 一个 PR 只处理一个主题。PR 说明写明问题、行为变化、验证命令与结果，并列出尚未验证的平台、设备或环境。
+- 提交信息使用清晰的 Conventional Commit 前缀，如 `feat:`、`fix:`、`perf:`、`docs:`、`test:`、`chore:`；必要时加作用域，如 `fix(serial): ...`。
+- 操作前后检查 `git status` 和差异，保留用户已有改动；不得擅自重置、覆盖或删除无关文件。
+- 只有用户明确授权时才提交、推送或发布；不得强制推送、自动创建标签、发布 Release 或上传构建产物。
+
+## 本地文件
+
+- `AGENTS.md` 仅保留在本地，必须加入 `.gitignore`，不得提交到远程仓库。
+- 若已被 Git 跟踪，使用 `git rm --cached -- AGENTS.md` 停止跟踪但保留本地文件。
+- 不提交 `out/`、`dist/`、安装包、驱动构建产物、下载的工具二进制或其他生成文件，除非仓库明确要求。
+
+## 开发、测试与构建
+
+- 参数修改无需做相关校验，但注意检查相关引用；大范围改动再运行完整测试和构建。
+- 非参数的局部逻辑变更按影响范围选择针对性检查；下列项目命令是可用入口，不要求每次全部执行。
+- 纯文档修改检查内容、路径与差异即可，不运行完整测试或构建。
+
+## 基本原则
+
+- 每次修改围绕一个清晰的问题或功能，保持改动可审查，不混入无关重构、格式化或生成物。
+- 先阅读相关 README、文档、现有实现和测试；不确定时先搜索已有 Issue 和代码。
+- 功能行为变化必须同步更新受影响的帮助页、编程手册或其他文档。
+- 涉及串口、固件、虚拟串口驱动或其他硬件时，明确区分模拟/静态验证与真实设备验证；不得把模拟测试描述成硬件已验证。
+- 保留未实现、不可用、硬件未连接或验证未完成状态，不伪造成功、读数或设备结果。
