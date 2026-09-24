@@ -266,15 +266,22 @@ app.whenReady().then(async () => {
     )
     assert.equal(openedOptions.at(-1)!.baudRate, 57600, 'original serial settings must be restored')
     await run(`window.api.closePort('COM991')`)
+    await until(() =>
+      run(`!Boolean(document.querySelector('[aria-label="烧录串口"] option[value="COM991"]'))`)
+    )
     await run(
       `(() => { const s = document.querySelector('[aria-label="芯片系列"]'); s.value = 'stm32'; s.dispatchEvent(new Event('change', {bubbles:true})); })()`
     )
     await run(
       `(() => { const s = document.querySelector('[aria-label="烧录方式"]'); s.value = 'ymodem'; s.dispatchEvent(new Event('change', {bubbles:true})); })()`
     )
+    FakeSerialPort.ymodemMode = true
+    FakeSerialPort.autoHandshake = false
+    await run(`window.api.openPort(${JSON.stringify(serialOptions)})`)
     await until(() =>
       run(`Boolean(document.querySelector('[aria-label="烧录串口"] option[value="COM991"]'))`)
     )
+    await until(() => run(`document.querySelector('[aria-label="烧录串口"]').value === 'COM991'`))
     await run(
       `(() => { const s = document.querySelector('[aria-label="烧录串口"]'); s.value = 'COM991'; s.dispatchEvent(new Event('change', {bubbles:true})); })()`
     )
@@ -285,15 +292,13 @@ app.whenReady().then(async () => {
     await run(
       `Array.from(document.querySelectorAll('.firmware-options label')).find(l => l.textContent.includes('结束后恢复原串口连接')).querySelector('input').click()`
     )
-    FakeSerialPort.ymodemMode = true
-    FakeSerialPort.autoHandshake = false
-    await run(`window.api.openPort(${JSON.stringify(serialOptions)})`)
     await run(
       `Array.from(document.querySelectorAll('.firmware-options label')).find(l => l.textContent.includes('监听 C 选口握手')).querySelector('input').click()`
     )
     await until(() =>
       run(`window.api.getFirmwareListenState().then(s => s?.status === 'listening')`)
     )
+    assert.equal(await run(`document.querySelector('[aria-label="烧录串口"]').value`), 'COM991')
     assert(
       await run(
         `Array.from(document.querySelectorAll('.firmware-panel button')).find(b => b.textContent === '开始烧录').disabled`

@@ -352,7 +352,7 @@ export function SendPanel(props: Props): React.JSX.Element {
         </div>
       ) : null}
       <div className="firmware-host" hidden={mode !== 'firmware'}>
-        <FirmwareFlashPanel />
+        <FirmwareFlashPanel openedPorts={props.openedPorts} />
       </div>
     </div>
   )

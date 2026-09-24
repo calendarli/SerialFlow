@@ -75,7 +75,11 @@ const formatBytes = (bytes: number): string =>
       ? `${(bytes / 1024).toFixed(1)} KB`
       : `${(bytes / 1024 / 1024).toFixed(1)} MB`
 
-export const FirmwareFlashPanel = memo(function FirmwareFlashPanel(): React.JSX.Element {
+export const FirmwareFlashPanel = memo(function FirmwareFlashPanel({
+  openedPorts
+}: {
+  openedPorts: string[]
+}): React.JSX.Element {
   const [initial] = useState(loadSettings)
   const [request, setRequest] = useState(initial.request)
   const [toolPaths, setToolPaths] = useState(initial.tools)
@@ -98,6 +102,13 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel(): React.JSX.
   const stm = request.family === 'stm32'
   const patch = (values: Partial<FirmwareRequest>): void =>
     setRequest((current) => ({ ...current, ...values }))
+  useEffect(() => {
+    if (busy || listening) return
+    setRequest((current) => {
+      if (current.transport === 'swd' || openedPorts.includes(current.port)) return current
+      return { ...current, port: openedPorts.length === 1 ? openedPorts[0] : '' }
+    })
+  }, [openedPorts, busy, listening])
   const perform = async (work: () => Promise<void>): Promise<void> => {
     setPending(true)
     setError('')
@@ -268,7 +279,7 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel(): React.JSX.
       }
     })
   const targetReady = serial
-    ? ports.some((port) => port.path === request.port)
+    ? openedPorts.includes(request.port) || (listening && listenState?.port === request.port)
     : Boolean(request.probe)
   const filesReady =
     request.files.length > 0 &&
@@ -360,13 +371,15 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel(): React.JSX.
                   value={request.port}
                   onChange={(e) => patch({ port: e.target.value })}
                 >
-                  <option value="">选择串口</option>
-                  {request.port && !ports.some((port) => port.path === request.port) && (
-                    <option value={request.port}>{request.port} · 设备已断开</option>
+                  <option value="">选择已打开串口</option>
+                  {request.port && !openedPorts.includes(request.port) && (busy || listening) && (
+                    <option value={request.port}>{request.port} · 烧录占用中</option>
                   )}
-                  {ports.map((port) => (
-                    <option key={port.path} value={port.path}>
-                      {serialPortLabel(port)}
+                  {openedPorts.map((path) => (
+                    <option key={path} value={path}>
+                      {ports.find((port) => port.path === path)
+                        ? serialPortLabel(ports.find((port) => port.path === path)!)
+                        : path}
                     </option>
                   ))}
                 </select>
