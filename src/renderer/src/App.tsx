@@ -556,7 +556,6 @@ function App(): React.JSX.Element {
   const connectionBusyRef = useRef(false)
   const textDecoders = useRef(new Map<string, TextDecoder>())
   const entryIdRef = useRef(0)
-  const firmwareLogRef = useRef<{ id: string; count: number } | null>(null)
   const pendingFrameRef = useRef<number | null>(null)
   const pendingInteractionsRef = useRef<{
     entries: InteractionEntry[]
@@ -675,50 +674,6 @@ function App(): React.JSX.Element {
     },
     [flushInteractions, plotStore]
   )
-
-  useEffect(() => {
-    let alive = true
-    const appendFirmwareLogs = (
-      state: Awaited<ReturnType<typeof window.api.getFirmwareState>>
-    ): void => {
-      if (!alive || !state) return
-      const previous = firmwareLogRef.current
-      if (previous?.id === state.id && state.logCount <= previous.count) return
-      const firstCount = previous?.id === state.id ? previous.count : 0
-      firmwareLogRef.current = { id: state.id, count: state.logCount }
-      const availableFrom = state.logCount - state.logs.length
-      const lines = state.logs.slice(Math.max(0, firstCount - availableFrom))
-      if (!lines.length) return
-      const pending = pendingInteractionsRef.current
-      const port = state.port || 'SWD'
-      for (const line of lines) {
-        const timestampMs = Date.now()
-        pending.entries.push({
-          id: ++entryIdRef.current,
-          direction: 'rx',
-          kind: 'firmware-log',
-          port,
-          text: line,
-          timestampMs,
-          bytes: new TextEncoder().encode(line).length,
-          time: interactionSettingsRef.current.timestamp
-            ? formatTime(new Date(timestampMs))
-            : undefined
-        })
-      }
-      if (pendingFrameRef.current === null)
-        pendingFrameRef.current = window.setTimeout(flushInteractions, 32)
-    }
-    const unsubscribe = window.api.onFirmwareProgress(appendFirmwareLogs)
-    void window.api
-      .getFirmwareState()
-      .then(appendFirmwareLogs)
-      .catch(() => {})
-    return () => {
-      alive = false
-      unsubscribe()
-    }
-  }, [flushInteractions])
 
   useEffect(
     () =>

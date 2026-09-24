@@ -133,7 +133,7 @@ class Controls {
     return byte
   }
 
-  async write(data: Buffer): Promise<void> {
+  async write(data: Buffer, showTraffic = true): Promise<void> {
     if (this.failed) throw this.failed
     await new Promise<void>((resolve, reject) => {
       let settled = false
@@ -150,7 +150,7 @@ class Controls {
       this.signal.addEventListener('abort', onAbort)
       try {
         this.port.write(data, (error) => {
-          if (!error) this.onTraffic?.('tx', data)
+          if (!error && showTraffic) this.onTraffic?.('tx', data)
           finish(error || undefined)
         })
       } catch (error) {
@@ -161,9 +161,14 @@ class Controls {
   }
 }
 
-async function acknowledged(controls: Controls, packet: Buffer, stage: string): Promise<void> {
+async function acknowledged(
+  controls: Controls,
+  packet: Buffer,
+  stage: string,
+  showTraffic = true
+): Promise<void> {
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-    await controls.write(packet)
+    await controls.write(packet, showTraffic)
     let answer: number
     try {
       answer = await controls.response()
@@ -214,7 +219,8 @@ export async function sendYmodem(
       await acknowledged(
         controls,
         ymodemPacket(sequence, data.subarray(offset, offset + count), size, 0x1a),
-        `数据包 ${sequence}`
+        `数据包 ${sequence}`,
+        false
       )
       offset += count
       onProgress(offset)

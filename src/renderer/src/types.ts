@@ -99,7 +99,7 @@ export type AutoReplyGroup = {
 export type InteractionEntry = {
   id: number
   direction: 'rx' | 'tx'
-  kind?: 'firmware-log' | 'firmware-wire'
+  kind?: 'firmware-wire'
   text: string
   rawHex?: string
   plotText?: string

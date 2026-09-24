@@ -328,7 +328,12 @@ test('Ymodem C listener replies repeatedly and reuses the locked port for flashi
     assert.equal(manager.snapshot()?.outcome, 'success')
     assert.equal(manager.listenSnapshot(), null)
     assert.equal(writes[2][0], 0x01, 'header follows the preconfirmed C handshake')
-    assert.equal(traffic.filter((event) => event.direction === 'tx').length, writes.length)
+    assert.equal(traffic.filter((event) => event.direction === 'tx').length, writes.length - 1)
+    assert(
+      !traffic.some(
+        (event) => event.direction === 'tx' && event.bytes === 133 && event.hex.startsWith('0101')
+      )
+    )
     assert.deepEqual([acquired, opened, closed, released], [1, 1, 1, 1])
   } finally {
     fs.rmSync(directory, { recursive: true, force: true })
@@ -512,7 +517,6 @@ test('task success, failures, cancellation, duplicate starts and restoration rel
       }
       await until(() => !h.manager.snapshot()!.busy)
       const state = h.manager.snapshot()!
-      assert.equal(state.logCount, state.logs.length)
       assert.equal(
         state.outcome,
         behavior === 'hang'

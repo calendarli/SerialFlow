@@ -59,7 +59,7 @@ const InteractionRow = memo(function InteractionRow({
       onContextMenu={(event) => onContextMenu(event, entry)}
     >
       <div className="interaction-meta">
-        <b>{entry.kind === 'firmware-log' ? '烧录日志' : entry.direction.toUpperCase()}</b>
+        <b>{entry.direction.toUpperCase()}</b>
         <em>{entry.port}</em>
         {entry.time && <time>{entry.time}</time>}
         <span>{entry.bytes} B</span>
@@ -474,13 +474,11 @@ export function ReceivePanel(props: Props): React.JSX.Element {
           {menu.entry && (
             <button onClick={() => void copyEntry(menu.entry!)}>
               复制当前
-              {menu.entry.kind === 'firmware-log'
-                ? '烧录日志'
-                : menu.entry.kind === 'firmware-wire'
-                  ? '烧录通讯'
-                  : menu.entry.direction === 'tx'
-                    ? '发送指令/数据'
-                    : '接收数据'}
+              {menu.entry.kind === 'firmware-wire'
+                ? '烧录通讯'
+                : menu.entry.direction === 'tx'
+                  ? '发送指令/数据'
+                  : '接收数据'}
             </button>
           )}
           {menu.entry && <div className="menu-separator" />}

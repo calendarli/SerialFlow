@@ -340,7 +340,6 @@ export class FirmwareManager {
       .slice(0, 2000)
     if (!clean) return
     this.state.logs.push(clean)
-    this.state.logCount += 1
     if (this.state.logs.length > 400) this.state.logs.splice(0, this.state.logs.length - 400)
     if (/verif|校验/i.test(clean)) this.state.phase = '校验固件'
     else if (/eras(?:e|ing)|擦除/i.test(clean)) this.state.phase = '擦除所需区域'
@@ -531,8 +530,7 @@ export class FirmwareManager {
       phase: '检查环境与固件',
       percent: null,
       startedAt: Date.now(),
-      logs: [],
-      logCount: 0
+      logs: []
     }
     this.publish(true)
     this.execution = this.execute(structuredClone(request), operation)
