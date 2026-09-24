@@ -5,6 +5,7 @@ import { Clock3, Pause, ChevronDown, ChevronRight } from 'lucide-react'
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { InteractionEntry } from '../types'
+import { formatFirmwareTraffic } from '../firmware-traffic-display'
 
 type SearchDirection = 'up' | 'down' | null
 type ContextMenu = { x: number; y: number; entry: InteractionEntry | null }
@@ -42,10 +43,12 @@ function escapeRegExp(value: string): string {
 
 const InteractionRow = memo(function InteractionRow({
   entry,
+  text,
   matched,
   onContextMenu
 }: {
   entry: InteractionEntry
+  text: string
   matched: boolean
   onContextMenu: (event: React.MouseEvent, entry: InteractionEntry) => void
 }): React.JSX.Element {
@@ -61,12 +64,19 @@ const InteractionRow = memo(function InteractionRow({
         {entry.time && <time>{entry.time}</time>}
         <span>{entry.bytes} B</span>
       </div>
-      <pre>{entry.text || ' '}</pre>
+      <pre>{text || ' '}</pre>
     </div>
   )
 })
 
 export function ReceivePanel(props: Props): React.JSX.Element {
+  const entryText = useCallback(
+    (entry: InteractionEntry) =>
+      entry.kind === 'firmware-wire' && entry.rawHex
+        ? formatFirmwareTraffic(entry.rawHex, props.rxHex, props.display.encoding)
+        : entry.text,
+    [props.rxHex, props.display.encoding]
+  )
   const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null)
   const [menu, setMenu] = useState<ContextMenu | null>(null)
   const [autoPauseExpanded, setAutoPauseExpanded] = useState(
@@ -100,7 +110,7 @@ export function ReceivePanel(props: Props): React.JSX.Element {
   })
   const lastEntryId = props.entries[props.entries.length - 1]?.id
 
-  useEffect(() => virtualizer.measure(), [props.fontSize, props.display, virtualizer])
+  useEffect(() => virtualizer.measure(), [props.fontSize, props.display, props.rxHex, virtualizer])
 
   useLayoutEffect(() => {
     if (!scrollElement || !props.entries.length || !followTailRef.current) return
@@ -140,7 +150,7 @@ export function ReceivePanel(props: Props): React.JSX.Element {
   )
   const copyEntry = async (entry: InteractionEntry): Promise<void> => {
     try {
-      await navigator.clipboard.writeText(entry.text)
+      await navigator.clipboard.writeText(entryText(entry))
       setMenu(null)
     } catch {
       setSearchMessage('复制失败，请检查剪贴板权限')
@@ -169,7 +179,7 @@ export function ReceivePanel(props: Props): React.JSX.Element {
       )
     }
     const matches = props.entries
-      .map((entry, index) => (matcher.test(entry.text) ? index : -1))
+      .map((entry, index) => (matcher.test(entryText(entry)) ? index : -1))
       .filter((index) => index >= 0)
     if (!matches.length) {
       setMatchedEntryId(null)
@@ -443,6 +453,7 @@ export function ReceivePanel(props: Props): React.JSX.Element {
                 >
                   <InteractionRow
                     entry={entry}
+                    text={entryText(entry)}
                     matched={matchedEntryId === entry.id}
                     onContextMenu={openContextMenu}
                   />

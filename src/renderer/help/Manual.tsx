@@ -329,7 +329,8 @@ export default function Manual(): React.JSX.Element {
             </p>
             <h3>固件烧录</h3>
             <p>
-              Ymodem 监听和传输的实际收发字节会以十六进制显示在“数据交互”区，包括 C
+              Ymodem 监听和传输的实际收发字节会显示在“数据交互”区，可用 ASCII/Hex
+              按钮切换已有记录的显示格式，包括 C
               握手、应答、数据包和结束控制字节；工具输出另标记为“烧录日志”。STM32CubeProgrammer 和
               esptool
               由独立进程管理串口，数据交互区显示其工具输出，无法取得工具内部的原始收发字节。烧录通讯和日志不计入普通串口
