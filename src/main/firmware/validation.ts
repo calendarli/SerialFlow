@@ -62,13 +62,15 @@ export function validateRequest(request: FirmwareRequest, flash: boolean): void 
   if (
     !request ||
     !['stm32', 'esp32'].includes(request.family) ||
-    !['uart', 'swd'].includes(request.transport)
+    !['uart', 'swd', 'ymodem'].includes(request.transport)
   )
     throw new Error('无效的芯片或连接方式')
   if (request.family === 'esp32' && request.transport !== 'uart')
     throw new Error('ESP32 请使用串口下载')
+  if (request.transport === 'ymodem' && (request.verify || request.eraseAll || request.reset))
+    throw new Error('Ymodem 接收端自行控制擦除、校验与复位，请关闭这些选项')
   if (
-    request.transport === 'uart' &&
+    request.transport !== 'swd' &&
     (typeof request.port !== 'string' || !/^(COM[1-9]\d{0,2}|\/dev\/[\w./-]+)$/i.test(request.port))
   )
     throw new Error('请选择有效串口')
@@ -79,7 +81,16 @@ export function validateRequest(request: FirmwareRequest, flash: boolean): void 
   if (!['NORMAL', 'UR'].includes(request.connectMode)) throw new Error('无效的连接模式')
   if (request.family === 'esp32' && !(espChips as readonly string[]).includes(request.chip))
     throw new Error('不支持的 ESP32 型号')
-  for (const key of ['verify', 'reset', 'restorePort', 'eraseAll', 'manualBoot'] as const)
+  if (request.listenForC && request.transport !== 'ymodem')
+    throw new Error('监听 C 握手仅用于 STM32 Ymodem')
+  for (const key of [
+    'verify',
+    'reset',
+    'restorePort',
+    'listenForC',
+    'eraseAll',
+    'manualBoot'
+  ] as const)
     if (typeof request[key] !== 'boolean') throw new Error('烧录选项无效')
   if (typeof request.toolPath !== 'string') throw new Error('工具路径无效')
   if (
@@ -89,6 +100,24 @@ export function validateRequest(request: FirmwareRequest, flash: boolean): void 
     throw new Error('请选择 1–16 个固件文件')
   if (flash && request.family === 'stm32' && request.files.length !== 1)
     throw new Error('STM32 每次请选择一个 HEX 或 BIN 文件')
+  if (
+    flash &&
+    request.transport === 'ymodem' &&
+    (typeof request.files[0]?.path !== 'string' || !/\.bin$/i.test(request.files[0].path))
+  )
+    throw new Error('Ymodem 烧录仅支持 BIN 文件')
+}
+
+export async function inspectYmodemFirmware(request: FirmwareRequest): Promise<Buffer> {
+  validateRequest(request, true)
+  const file = request.files[0]
+  if (!file || !isAbsolute(file.path)) throw new Error('固件路径无效')
+  const info = await stat(file.path)
+  if (!info.isFile() || !info.size || info.size > 128 * 1024 * 1024)
+    throw new Error('Ymodem 固件为空或超过 128 MB')
+  const data = await readFile(file.path)
+  if (data.length !== info.size) throw new Error('固件文件已变化，请重新选择')
+  return data
 }
 
 export async function inspectFirmware(

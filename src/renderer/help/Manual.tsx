@@ -329,19 +329,34 @@ export default function Manual(): React.JSX.Element {
             </p>
             <h3>固件烧录</h3>
             <p>
-              切换到底部“固件烧录”页签，选择 STM32 或 ESP32。STM32 支持 UART、ST-LINK / SWD 和 HEX /
-              BIN；ESP32 支持一个或多个 BIN。HEX 使用文件内地址，BIN 请按工程输出填写写入地址，ESP32
-              不自动猜测分区偏移。
+              切换到底部“固件烧录”页签，选择 STM32 或 ESP32。STM32 支持芯片内置 Bootloader 的
+              UART、设备 Bootloader 的 Ymodem、ST-LINK / SWD。Ymodem 只发送 BIN，需要先让设备进入
+              Ymodem 接收状态；它使用接收端 C 握手、CRC16、逐包确认、重传与结束空包，不调用
+              STM32CubeProgrammer。其他 STM32 方式支持 HEX / BIN；ESP32 支持一个或多个 BIN。HEX
+              使用文件内地址，普通 BIN 请按工程输出填写写入地址，ESP32 不自动猜测分区偏移。
             </p>
             <p>
               Windows x64 已内置 esptool 5.3.1。STM32 需先安装
               STM32CubeProgrammer；未自动找到时，在高级设置中选择安装目录中的
-              STM32_Programmer_CLI.exe。
+              STM32_Programmer_CLI.exe。Ymodem 模式不需要此工具。
             </p>
             <p>
-              先刷新并选择串口或探针，可使用“检测芯片”查看日志，再“开始烧录”。STM32 UART
-              需要按芯片手册设置 BOOT 并复位，烧录后恢复 BOOT 配置并手动复位。ESP32
-              无自动下载电路时，选择手动模式并操作 BOOT/RESET。
+              先刷新并选择串口或探针，普通 UART / SWD
+              可使用“检测芯片”查看日志，再“开始烧录”。选择固件时会记住上次使用的目录。底部状态区显示阶段、百分比和耗时，Ymodem
+              还显示已确认的数据量。STM32 系统 UART 需要按芯片手册设置 BOOT 并复位，烧录后恢复 BOOT
+              配置并手动复位。ESP32 无自动下载电路时，选择手动模式并操作 BOOT/RESET。
+            </p>
+            <p>
+              STM32 Ymodem 的写入地址、擦除、Flash 校验与复位由设备自带 Bootloader
+              决定。应用显示“Ymodem
+              传输完成”只表示接收端确认了全部数据和结束空包；设备最终烧录结果须查看其升级程序的报告。Ymodem
+              不适用于 STM32 芯片内置的系统 Bootloader。
+            </p>
+            <p>
+              如果设备在多个串口发送 0x43，并以收到回传的 0x43 来选定升级串口，可以勾选“监听 C
+              选口握手”。勾选后立即占用所选串口并持续回复收到的
+              0x43；显示握手完成后，再点击“开始烧录”。取消勾选会释放监听串口。此选口握手属于设备扩展流程，未勾选时使用标准
+              Ymodem 起始握手。
             </p>
             <p>
               烧录时独占目标串口；若正在传输/接收文件，请先停止。可选择结束后恢复原串口连接，自动发送任务需要重新启动。切换页签不停止烧录；停止或退出应用可能留下不完整固件，需重新烧录。整片擦除会删除设备上的全部数据，默认关闭。

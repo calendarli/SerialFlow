@@ -22,7 +22,7 @@ SerialFlow 将多串口收发、可编程指令、实时曲线和固件烧录集
 | 实时分析     | 多通道曲线、采样值查看、PID 响应指标与调参建议                                     |
 | 独立数据窗口 | 按 HEX 模板提取字段，显示 HEX / DEC，支持编程换算、单位、符号、小数位和窗口置顶    |
 | Modbus RTU   | 保持寄存器读取与轮询、H06 / H10 写入、分组快捷指令拖拽排序、设备配置管理与批量写入 |
-| 文件与固件   | 串口文件传输、STM32 UART / ST-LINK 烧录、ESP32 单个或多个 BIN 烧录                 |
+| 文件与固件   | 串口文件传输、STM32 UART / Ymodem / ST-LINK 烧录、ESP32 单个或多个 BIN 烧录        |
 | 配置共享     | 导入 / 导出 `.serialflow` 工程、快捷指令、自动回复及 Modbus 配置                   |
 | 虚拟串口     | 在 Windows 上通过配套 UMDF 2 驱动管理本地虚拟串口对                                |
 
@@ -57,6 +57,14 @@ Modbus RTU 左侧快捷指令支持拖动边界调整宽度、空白处右键直
 应用内“帮助”提供详细操作说明；快捷指令与自动回复编辑区可打开编程手册。“关于”页面提供更新检查与后续更新操作。
 
 ## 进阶使用
+
+### STM32 Ymodem 固件传输
+
+在“固件烧录”中选择 STM32 和“Ymodem（设备升级）”，选择 BIN 固件及设备串口、波特率。先让设备自带的 Bootloader 进入 Ymodem 接收状态，再开始传输。此模式使用 8N1、CRC16、文件信息包、逐包确认与重传、EOT 和结束空包；它不调用 STM32CubeProgrammer，也不支持 STM32 芯片内置的系统 Bootloader。系统 Bootloader 请选“UART（芯片内置）”。
+
+设备如需通过多串口发送 `0x43` 选口，可勾选“监听 C 选口握手”；SerialFlow 收到并回复所选串口的 `0x43` 后，再点击“开始烧录”。
+
+Ymodem 的文件名、大小和数据由接收端按协议处理，写入地址、擦除范围、最终 Flash 校验与复位均由设备 Bootloader 决定。SerialFlow 显示“传输完成”表示接收端确认了协议结束空包，不代表已独立校验芯片中的固件。设备的升级程序须明确报告最终结果。固件路径含非 ASCII 文件名时，协议中发送的名称为 `firmware.bin`，文件内容不变。
 
 ### 从其他串口工具导入快捷指令
 
@@ -95,7 +103,7 @@ function process(data, context) {
 
 ### 固件烧录
 
-底部“固件烧录”页签支持 STM32 的 UART / ST-LINK HEX、BIN 烧录，以及 ESP32 的单个或多个 BIN 烧录。STM32 需单独安装 STM32CubeProgrammer；ESP32 使用随包提供或手动指定的 esptool。
+底部“固件烧录”页签支持 STM32 的系统 UART、Ymodem 和 ST-LINK / SWD，以及 ESP32 的单个或多个 BIN 烧录。STM32 系统 UART / ST-LINK 需单独安装 STM32CubeProgrammer；Ymodem 使用设备自带 Bootloader；ESP32 使用随包提供或手动指定的 esptool。
 
 烧录期间独占目标串口。工具准备、地址配置、串口恢复及硬件支持边界见 [固件烧录说明](docs/firmware-flashing.md)。
 

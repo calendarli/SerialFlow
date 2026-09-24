@@ -2,7 +2,7 @@ export type FirmwareFamily = 'stm32' | 'esp32'
 export type FirmwareFile = { path: string; name: string; size: number; address: string }
 export type FirmwareRequest = {
   family: FirmwareFamily
-  transport: 'uart' | 'swd'
+  transport: 'uart' | 'swd' | 'ymodem'
   port: string
   probe: string
   chip: string
@@ -11,6 +11,7 @@ export type FirmwareRequest = {
   verify: boolean
   reset: boolean
   restorePort: boolean
+  listenForC: boolean
   eraseAll: boolean
   manualBoot: boolean
   connectMode: 'NORMAL' | 'UR'
@@ -23,6 +24,8 @@ export type FirmwareState = {
   port: string
   phase: string
   percent: number | null
+  totalBytes?: number
+  transferredBytes?: number
   startedAt: number
   finishedAt?: number
   outcome?: 'success' | 'error' | 'cancelled'
@@ -30,6 +33,13 @@ export type FirmwareState = {
   restoreWarning?: string
 }
 export type FirmwareTool = { path: string; available: boolean; version: string; error?: string }
+export type FirmwareListenState = {
+  port: string
+  baudRate: number
+  status: 'opening' | 'listening' | 'ready' | 'error'
+  receivedCount: number
+  error?: string
+}
 export const espChips = [
   'auto',
   'esp32',

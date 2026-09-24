@@ -19,6 +19,7 @@ const base: FirmwareRequest = {
   verify: true,
   reset: true,
   restorePort: true,
+  listenForC: false,
   eraseAll: false,
   manualBoot: false,
   connectMode: 'NORMAL',
@@ -147,6 +148,255 @@ test('commands preserve arguments and avoid unsupported UART reset or forced sec
   assert(!esp.includes('--force'))
   assert(!esp.includes('--trust-flash-content'))
   assert.deepEqual(esp.slice(-2), ['0x1000', file.path])
+  assert.throws(() => flashCommands({ ...base, transport: 'ymodem' }, []), /Ymodem/)
+})
+
+test('Ymodem request accepts BIN only and cannot claim unsupported controls or chip detection', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'serialflow-ymodem-validation-'))
+  try {
+    const bin = path.join(directory, 'firmware.bin')
+    const hexPath = path.join(directory, 'firmware.hex')
+    fs.writeFileSync(bin, Buffer.from([1, 2, 3]))
+    fs.writeFileSync(hexPath, hex)
+    const request: FirmwareRequest = {
+      ...base,
+      transport: 'ymodem',
+      verify: false,
+      reset: false,
+      files: [{ path: bin, name: 'firmware.bin', size: 3, address: '' }]
+    }
+    assert.deepEqual(await validation.inspectYmodemFirmware(request), Buffer.from([1, 2, 3]))
+    assert.throws(() => validation.validateRequest({ ...request, verify: true }, true), /Ymodem/)
+    assert.throws(() => validation.validateRequest({ ...request, eraseAll: true }, true), /Ymodem/)
+    assert.throws(
+      () =>
+        validation.validateRequest(
+          { ...request, files: [{ ...request.files[0], path: hexPath }] },
+          true
+        ),
+      /BIN/
+    )
+    assert.throws(() => validation.validateRequest({ ...request, family: 'esp32' }, true), /ESP32/)
+    const manager = new FirmwareManager({
+      resources: directory,
+      temp: directory,
+      emit() {
+        /* Assertions read snapshots directly. */
+      },
+      acquire: async () => async () => {}
+    })
+    assert.throws(() => manager.start(request, 'detect'), /检测/)
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('Ymodem firmware task owns and restores the serial port without CubeProgrammer', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'serialflow-ymodem-manager-'))
+  try {
+    const bin = path.join(directory, 'firmware.bin')
+    fs.writeFileSync(bin, Buffer.alloc(129, 0x5a))
+    const request: FirmwareRequest = {
+      ...base,
+      transport: 'ymodem',
+      verify: false,
+      reset: false,
+      files: [{ path: bin, name: 'firmware.bin', size: 129, address: '' }]
+    }
+    const port = new EventEmitter() as EventEmitter & {
+      write: (data: Buffer, callback: (error?: Error | null) => void) => void
+    }
+    let phase: 'header' | 'data' | 'final' = 'header'
+    let released = 0
+    let closed = 0
+    port.write = (data, callback) => {
+      callback()
+      if (data[0] === 0x04) {
+        phase = 'final'
+        queueMicrotask(() => port.emit('data', Buffer.from([0x06, 0x43])))
+      } else if (phase === 'header') {
+        phase = 'data'
+        queueMicrotask(() => port.emit('data', Buffer.from([0x06, 0x43])))
+      } else queueMicrotask(() => port.emit('data', Buffer.from([0x06])))
+    }
+    const manager = new FirmwareManager({
+      resources: directory,
+      temp: directory,
+      emit() {
+        /* Assertions read snapshots directly. */
+      },
+      acquire: async () => async () => {
+        released++
+      },
+      openYmodem: async () => {
+        setTimeout(() => port.emit('data', Buffer.from([0x43])), 0)
+        return {
+          port,
+          close: async () => {
+            closed++
+          }
+        }
+      }
+    })
+    manager.start(request, 'flash')
+    await until(() => !manager.snapshot()!.busy)
+    assert.equal(manager.snapshot()!.outcome, 'success')
+    assert.equal(manager.snapshot()!.percent, 100)
+    assert.equal(manager.snapshot()!.transferredBytes, 129)
+    assert.equal(manager.snapshot()!.totalBytes, 129)
+    assert.equal(released, 1)
+    assert.equal(closed, 1)
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('Ymodem C listener replies repeatedly and reuses the locked port for flashing', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'serialflow-ymodem-listener-'))
+  try {
+    const bin = path.join(directory, 'firmware.bin')
+    fs.writeFileSync(bin, Buffer.from([1, 2, 3, 4]))
+    const request: FirmwareRequest = {
+      ...base,
+      transport: 'ymodem',
+      verify: false,
+      reset: false,
+      listenForC: true,
+      files: [{ path: bin, name: 'firmware.bin', size: 4, address: '' }]
+    }
+    const port = new EventEmitter() as EventEmitter & {
+      write: (data: Buffer, callback: (error?: Error | null) => void) => void
+    }
+    const writes: Buffer[] = []
+    let phase: 'header' | 'data' | 'final' = 'header'
+    let acquired = 0
+    let opened = 0
+    let closed = 0
+    let released = 0
+    port.write = (data, callback) => {
+      writes.push(Buffer.from(data))
+      callback()
+      if (data[0] === 0x43) return
+      if (data[0] === 0x04) {
+        phase = 'final'
+        queueMicrotask(() => port.emit('data', Buffer.from([0x06, 0x43])))
+      } else if (phase === 'header') {
+        phase = 'data'
+        queueMicrotask(() => port.emit('data', Buffer.from([0x06, 0x43])))
+      } else queueMicrotask(() => port.emit('data', Buffer.from([0x06])))
+    }
+    const manager = new FirmwareManager({
+      resources: directory,
+      temp: directory,
+      emit() {
+        /* Assertions read snapshots directly. */
+      },
+      acquire: async () => {
+        acquired++
+        return async () => {
+          released++
+        }
+      },
+      openYmodem: async () => {
+        opened++
+        return {
+          port,
+          close: async () => {
+            closed++
+          }
+        }
+      }
+    })
+    await manager.startListening(request)
+    assert.equal(manager.listenSnapshot()?.status, 'listening')
+    assert.throws(() => manager.start(request, 'flash'), /C 握手/)
+    port.emit('data', Buffer.from([0x00, 0x43, 0x43]))
+    await until(() => manager.listenSnapshot()?.receivedCount === 2)
+    assert.deepEqual(writes, [Buffer.from([0x43]), Buffer.from([0x43])])
+    manager.start(request, 'flash')
+    await until(() => !manager.snapshot()!.busy)
+    assert.equal(manager.snapshot()?.outcome, 'success')
+    assert.equal(manager.listenSnapshot(), null)
+    assert.equal(writes[2][0], 0x01, 'header follows the preconfirmed C handshake')
+    assert.deepEqual([acquired, opened, closed, released], [1, 1, 1, 1])
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('Ymodem C listener can stop before handshake and releases the serial port', async () => {
+  let released = 0
+  let closed = 0
+  const port = new EventEmitter() as EventEmitter & {
+    write: (data: Buffer, callback: (error?: Error | null) => void) => void
+  }
+  port.write = (_data, callback) => callback()
+  const manager = new FirmwareManager({
+    resources: os.tmpdir(),
+    temp: os.tmpdir(),
+    emit() {
+      /* Assertions read snapshots directly. */
+    },
+    acquire: async () => async () => {
+      released++
+    },
+    openYmodem: async () => ({
+      port,
+      close: async () => {
+        closed++
+      }
+    })
+  })
+  const request: FirmwareRequest = {
+    ...base,
+    transport: 'ymodem',
+    verify: false,
+    reset: false,
+    listenForC: true
+  }
+  await manager.startListening(request)
+  await manager.stopListening()
+  assert.equal(manager.listenSnapshot(), null)
+  assert.deepEqual([closed, released], [1, 1])
+  port.emit('data', Buffer.from([0x43]))
+  assert.equal(manager.listenSnapshot(), null)
+})
+
+test('Ymodem C listener reports a reply failure and releases the port', async () => {
+  let released = 0
+  let closed = 0
+  const port = new EventEmitter() as EventEmitter & {
+    write: (data: Buffer, callback: (error?: Error | null) => void) => void
+  }
+  port.write = (_data, callback) => callback(new Error('串口写入失败'))
+  const manager = new FirmwareManager({
+    resources: os.tmpdir(),
+    temp: os.tmpdir(),
+    emit() {
+      /* Assertions read snapshots directly. */
+    },
+    acquire: async () => async () => {
+      released++
+    },
+    openYmodem: async () => ({
+      port,
+      close: async () => {
+        closed++
+      }
+    })
+  })
+  const request: FirmwareRequest = {
+    ...base,
+    transport: 'ymodem',
+    verify: false,
+    reset: false,
+    listenForC: true
+  }
+  await manager.startListening(request)
+  port.emit('data', Buffer.from([0x43]))
+  await until(() => manager.listenSnapshot()?.status === 'error' && released === 1)
+  assert.match(manager.listenSnapshot()?.error || '', /串口写入失败/)
+  assert.equal(closed, 1)
 })
 
 function harness(directory, behavior = 'success') {

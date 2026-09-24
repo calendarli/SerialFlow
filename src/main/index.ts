@@ -4,7 +4,7 @@ import { app, shell, BrowserWindow, dialog, ipcMain } from 'electron'
 import { execFile } from 'child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { readFile, stat, writeFile } from 'fs/promises'
-import { basename, join } from 'path'
+import { basename, dirname, join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { SerialPort } from 'serialport'
 import icon from '../../resources/icon-v3.png?asset'
@@ -39,7 +39,7 @@ mkdirSync(userDataPath, { recursive: true })
 app.setPath('userData', userDataPath)
 
 const configDialogStatePath = join(userDataPath, 'config-dialog-state.json')
-type ConfigDialogState = { lastDirectory?: string }
+type ConfigDialogState = { lastDirectory?: string; firmwareDirectory?: string }
 function readConfigDialogState(): ConfigDialogState {
   try {
     const value = JSON.parse(readFileSync(configDialogStatePath, 'utf8')) as ConfigDialogState
@@ -52,11 +52,23 @@ function rememberConfigDirectory(filePath: string): void {
   try {
     writeFileSync(
       configDialogStatePath,
-      JSON.stringify({ lastDirectory: join(filePath, '..') }),
+      JSON.stringify({ ...readConfigDialogState(), lastDirectory: dirname(filePath) }),
       'utf8'
     )
   } catch {
     // A dialog path is a convenience; failure to persist it must not block I/O.
+  }
+}
+
+function rememberFirmwareDirectory(filePath: string): void {
+  try {
+    writeFileSync(
+      configDialogStatePath,
+      JSON.stringify({ ...readConfigDialogState(), firmwareDirectory: dirname(filePath) }),
+      'utf8'
+    )
+  } catch {
+    // A remembered folder is optional; the selected firmware remains usable.
   }
 }
 
@@ -366,9 +378,10 @@ function registerSerialHandlers(): void {
     resources: app.isPackaged ? process.resourcesPath : join(app.getAppPath(), 'resources'),
     temp: app.getPath('temp'),
     emit: (state) => emit('firmware:progress', state),
+    emitListen: (state) => emit('firmware:listen', state),
     acquire: (request) =>
       enqueuePortOperation(async () => {
-        if (request.transport !== 'uart') return async () => {}
+        if (request.transport === 'swd') return async () => {}
         const path = request.port
         assertPortAvailable(path)
         if (fileTransferManager?.isPortBusy(path))
@@ -398,6 +411,11 @@ function registerSerialHandlers(): void {
       })
   })
   ipcMain.handle('firmware:state', () => firmwareManager!.snapshot())
+  ipcMain.handle('firmware:listenState', () => firmwareManager!.listenSnapshot())
+  ipcMain.handle('firmware:listenStart', (_event, request: FirmwareRequest) =>
+    firmwareManager!.startListening(request)
+  )
+  ipcMain.handle('firmware:listenStop', () => firmwareManager!.stopListening())
   ipcMain.handle('firmware:tool', (_event, family: FirmwareFamily, path: string) =>
     firmwareManager!.toolInfo(family, path)
   )
@@ -411,27 +429,46 @@ function registerSerialHandlers(): void {
     })
     return result.canceled ? null : firmwareManager!.resolveTool(family, result.filePaths[0])
   })
-  ipcMain.handle('firmware:chooseFiles', async (_event, family: FirmwareFamily) => {
-    if (!['stm32', 'esp32'].includes(family)) throw new Error('无效芯片系列')
-    const result = await dialog.showOpenDialog({
-      title: '选择烧录固件',
-      properties: family === 'esp32' ? ['openFile', 'multiSelections'] : ['openFile'],
-      filters: [{ name: '固件', extensions: family === 'stm32' ? ['hex', 'bin'] : ['bin'] }]
-    })
-    if (result.canceled) return []
-    return Promise.all(
-      result.filePaths.map(async (path) => ({
-        path,
-        name: basename(path),
-        size: (await stat(path)).size,
-        address: family === 'stm32' ? '0x08000000' : ''
-      }))
-    )
-  })
+  ipcMain.handle(
+    'firmware:chooseFiles',
+    async (_event, family: FirmwareFamily, transport: FirmwareRequest['transport']) => {
+      if (!['stm32', 'esp32'].includes(family)) throw new Error('无效芯片系列')
+      if (
+        !['uart', 'swd', 'ymodem'].includes(transport) ||
+        (transport === 'ymodem' && family !== 'stm32')
+      )
+        throw new Error('无效的烧录方式')
+      const savedDirectory = readConfigDialogState().firmwareDirectory
+      const result = await dialog.showOpenDialog({
+        title: '选择烧录固件',
+        defaultPath:
+          typeof savedDirectory === 'string' && existsSync(savedDirectory)
+            ? savedDirectory
+            : undefined,
+        properties: family === 'esp32' ? ['openFile', 'multiSelections'] : ['openFile'],
+        filters: [
+          {
+            name: '固件',
+            extensions: family === 'stm32' && transport !== 'ymodem' ? ['hex', 'bin'] : ['bin']
+          }
+        ]
+      })
+      if (result.canceled) return []
+      if (result.filePaths[0]) rememberFirmwareDirectory(result.filePaths[0])
+      return Promise.all(
+        result.filePaths.map(async (path) => ({
+          path,
+          name: basename(path),
+          size: (await stat(path)).size,
+          address: family === 'stm32' ? '0x08000000' : ''
+        }))
+      )
+    }
+  )
   ipcMain.handle(
     'firmware:start',
     async (_event, request: FirmwareRequest, operation: 'detect' | 'flash') => {
-      if (operation === 'flash' && request?.eraseAll) {
+      if (operation === 'flash' && request?.eraseAll && request.transport !== 'ymodem') {
         const result = await dialog.showMessageBox({
           type: 'warning',
           title: '确认整片擦除',
@@ -678,12 +715,16 @@ function registerSerialHandlers(): void {
     if (kind === 'quick-commands')
       return {
         title: '快捷指令',
-        defaultPath: lastDirectory ? join(lastDirectory, 'SerialFlow-quick-commands.json') : 'SerialFlow-quick-commands.json'
+        defaultPath: lastDirectory
+          ? join(lastDirectory, 'SerialFlow-quick-commands.json')
+          : 'SerialFlow-quick-commands.json'
       }
     if (kind === 'auto-replies')
       return {
         title: '自动回复规则',
-        defaultPath: lastDirectory ? join(lastDirectory, 'SerialFlow-auto-reply-rules.json') : 'SerialFlow-auto-reply-rules.json'
+        defaultPath: lastDirectory
+          ? join(lastDirectory, 'SerialFlow-auto-reply-rules.json')
+          : 'SerialFlow-auto-reply-rules.json'
       }
     throw new Error('不支持的配置类型')
   }

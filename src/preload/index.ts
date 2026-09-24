@@ -1,6 +1,11 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { PlotMeasurement, PlotMeasurementCommand } from '@common/plot-measurement'
-import type { FirmwareFamily, FirmwareRequest, FirmwareState } from '@common/firmware'
+import type {
+  FirmwareFamily,
+  FirmwareListenState,
+  FirmwareRequest,
+  FirmwareState
+} from '@common/firmware'
 import type { UpdateState } from '@common/update'
 import type { SerialPortInfo } from '@common/serial-port'
 
@@ -46,12 +51,22 @@ const api = {
     return () => ipcRenderer.removeListener('update:state', listener)
   },
   getFirmwareState: () => ipcRenderer.invoke('firmware:state'),
+  getFirmwareListenState: () => ipcRenderer.invoke('firmware:listenState'),
+  startFirmwareListen: (request: FirmwareRequest) =>
+    ipcRenderer.invoke('firmware:listenStart', request),
+  stopFirmwareListen: () => ipcRenderer.invoke('firmware:listenStop'),
+  onFirmwareListen: (callback: (state: FirmwareListenState | null) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, state: FirmwareListenState | null): void =>
+      callback(state)
+    ipcRenderer.on('firmware:listen', listener)
+    return () => ipcRenderer.removeListener('firmware:listen', listener)
+  },
   getFirmwareTool: (family: FirmwareFamily, path: string) =>
     ipcRenderer.invoke('firmware:tool', family, path),
   listFirmwareProbes: (path: string) => ipcRenderer.invoke('firmware:probes', path),
   chooseFirmwareTool: (family: FirmwareFamily) => ipcRenderer.invoke('firmware:chooseTool', family),
-  chooseFirmwareFiles: (family: FirmwareFamily) =>
-    ipcRenderer.invoke('firmware:chooseFiles', family),
+  chooseFirmwareFiles: (family: FirmwareFamily, transport: FirmwareRequest['transport']) =>
+    ipcRenderer.invoke('firmware:chooseFiles', family, transport),
   startFirmware: (request: FirmwareRequest, operation: 'detect' | 'flash') =>
     ipcRenderer.invoke('firmware:start', request, operation),
   cancelFirmware: (id: string) => ipcRenderer.invoke('firmware:cancel', id),
@@ -64,9 +79,24 @@ const api = {
   },
   openDataWindow: (id: string): Promise<void> => ipcRenderer.invoke('dataWindow:open', id),
   closeDataWindow: (id: string): Promise<void> => ipcRenderer.invoke('dataWindow:close', id),
-  publishDataWindowPlot: (value: { id: string; name: string; values: Record<string, number>; timestamp: number }): Promise<void> => ipcRenderer.invoke('dataWindow:plot', value),
-  onDataWindowPlot: (callback: (value: { id: string; name: string; values: Record<string, number>; timestamp: number }) => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, value: { id: string; name: string; values: Record<string, number>; timestamp: number }): void => callback(value)
+  publishDataWindowPlot: (value: {
+    id: string
+    name: string
+    values: Record<string, number>
+    timestamp: number
+  }): Promise<void> => ipcRenderer.invoke('dataWindow:plot', value),
+  onDataWindowPlot: (
+    callback: (value: {
+      id: string
+      name: string
+      values: Record<string, number>
+      timestamp: number
+    }) => void
+  ) => {
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      value: { id: string; name: string; values: Record<string, number>; timestamp: number }
+    ): void => callback(value)
     ipcRenderer.on('dataWindow:plot', listener)
     return () => ipcRenderer.removeListener('dataWindow:plot', listener)
   },

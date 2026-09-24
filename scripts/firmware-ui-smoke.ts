@@ -19,10 +19,16 @@ let finishFirmware: (() => void) | undefined
 const openedOptions: SerialOptions[] = []
 type SerialOptions = { path: string; baudRate: number }
 class FakeSerialPort extends EventEmitter {
+  static ymodemMode = false
+  static autoHandshake = true
+  static latestYmodem: FakeSerialPort | null = null
   path: string
   settings: SerialOptions
   baudRate: number
   isOpen: boolean
+  writes: Buffer[] = []
+  private ymodemPhase: 'header' | 'data' | 'final' = 'header'
+  private ymodem: boolean
   static async list() {
     return [{ path: 'COM991', manufacturer: 'Test fixture (no hardware)' }]
   }
@@ -32,11 +38,17 @@ class FakeSerialPort extends EventEmitter {
     this.settings = options
     this.baudRate = options.baudRate
     this.isOpen = false
+    this.ymodem = FakeSerialPort.ymodemMode
+    if (this.ymodem) FakeSerialPort.latestYmodem = this
     openedOptions.push(options)
   }
   open(callback: (error: Error | null) => void) {
     this.isOpen = true
-    setImmediate(() => callback(null))
+    setImmediate(() => {
+      callback(null)
+      if (this.ymodem && FakeSerialPort.autoHandshake)
+        setTimeout(() => this.emit('data', Buffer.from([0x43])), 0)
+    })
   }
   close(callback: (error: Error | null) => void) {
     this.isOpen = false
@@ -45,8 +57,22 @@ class FakeSerialPort extends EventEmitter {
       callback(null)
     })
   }
-  write(_data: unknown, callback: (error: Error | null) => void) {
-    setImmediate(() => callback(null))
+  write(data: Buffer, callback: (error: Error | null) => void) {
+    this.writes.push(Buffer.from(data))
+    setImmediate(() => {
+      callback(null)
+      if (!this.ymodem) return
+      if (data[0] === 0x43) return
+      let response: number[]
+      if (data[0] === 0x04) {
+        this.ymodemPhase = 'final'
+        response = [0x06, 0x43]
+      } else if (this.ymodemPhase === 'header') {
+        this.ymodemPhase = 'data'
+        response = [0x06, 0x43]
+      } else response = [0x06]
+      this.emit('data', Buffer.from(response))
+    })
   }
   drain(callback: (error: Error | null) => void) {
     setImmediate(() => callback(null))
@@ -86,7 +112,12 @@ BrowserWindow.prototype.show = function () {
 }
 const fixture = path.join(profile, 'application.bin')
 fs.writeFileSync(fixture, Buffer.from([1, 2, 3, 4]))
-dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [fixture] })
+const firmwareDialogPaths: Array<string | undefined> = []
+dialog.showOpenDialog = async (...args) => {
+  const options = args.at(-1) as { title?: string; defaultPath?: string }
+  if (options.title === '选择烧录固件') firmwareDialogPaths.push(options.defaultPath)
+  return { canceled: false, filePaths: [fixture] }
+}
 const errors: string[] = []
 app.on('web-contents-created', (_event, contents) => {
   contents.setBackgroundThrottling(false)
@@ -111,13 +142,35 @@ app.whenReady().then(async () => {
   try {
     await until(() => BrowserWindow.getAllWindows().length)
     const window = BrowserWindow.getAllWindows()[0]
-    const run = (source: string) => window.webContents.executeJavaScript(source)
+    const run = async (source: string) => {
+      try {
+        return await window.webContents.executeJavaScript(source)
+      } catch (error) {
+        throw new Error(`Firmware UI script failed: ${source}`, { cause: error })
+      }
+    }
     await until(() => run('Boolean(document.querySelector(".send-mode-tabs"))'))
     await run(
       `Array.from(document.querySelectorAll('.send-mode-tabs button')).find(b => b.textContent === '固件烧录').click()`
     )
     assert(await run(`!document.querySelector('.firmware-host').hidden`))
     assert(await run(`document.querySelector('[aria-label="芯片系列"]').value === 'stm32'`))
+    await run(
+      `(() => { const s = document.querySelector('[aria-label="烧录方式"]'); s.value = 'ymodem'; s.dispatchEvent(new Event('change', {bubbles:true})); })()`
+    )
+    assert(await run(`document.querySelector('[aria-label="烧录方式"]').value === 'ymodem'`))
+    assert(
+      await run(
+        `!Array.from(document.querySelectorAll('.firmware-panel button')).some(b => b.textContent === '检测芯片')`
+      )
+    )
+    assert(await run(`!document.querySelector('.firmware-tool-path')`))
+    await run(
+      `Array.from(document.querySelectorAll('.firmware-panel button')).find(b => b.textContent === '选择固件').click()`
+    )
+    await until(() => run(`document.querySelectorAll('.firmware-file').length === 1`))
+    assert(await run(`!document.querySelector('[aria-label$="写入地址"]')`))
+    assert.equal(firmwareDialogPaths[0], undefined)
     await run(
       `(() => { const s = document.querySelector('[aria-label="芯片系列"]'); s.value = 'esp32'; s.dispatchEvent(new Event('change', {bubbles:true})); })()`
     )
@@ -128,6 +181,7 @@ app.whenReady().then(async () => {
       `Array.from(document.querySelectorAll('.firmware-panel button')).find(b => b.textContent === '添加 BIN').click()`
     )
     await until(() => run(`document.querySelectorAll('.firmware-file').length === 1`))
+    assert.equal(firmwareDialogPaths[1], path.dirname(fixture))
     assert(
       await run(
         `Array.from(document.querySelectorAll('.firmware-panel button')).find(b => b.textContent === '开始烧录').disabled`
@@ -181,6 +235,7 @@ app.whenReady().then(async () => {
       verify: true,
       reset: true,
       restorePort: true,
+      listenForC: false,
       eraseAll: false,
       manualBoot: false,
       connectMode: 'NORMAL',
@@ -188,6 +243,9 @@ app.whenReady().then(async () => {
     }
     await run(`window.api.startFirmware(${JSON.stringify(request)}, 'flash')`)
     await until(() => Boolean(finishFirmware))
+    await until(() =>
+      run(`Boolean(document.querySelector('.firmware-progress-track.is-indeterminate'))`)
+    )
     assert.deepEqual(await run(`window.api.getOpenedPortPaths()`), [])
     const deniedOpen = await run(
       `window.api.openPort(${JSON.stringify(serialOptions)}).then(() => '', e => e.message)`
@@ -201,8 +259,95 @@ app.whenReady().then(async () => {
     await until(() => run(`window.api.getFirmwareState().then(s => !s.busy)`))
     assert.equal(await run(`window.api.getFirmwareState().then(s => s.outcome)`), 'success')
     assert.deepEqual(await run(`window.api.getOpenedPortPaths()`), ['COM991'])
+    await until(() =>
+      run(
+        `document.querySelector('.firmware-status-success .firmware-progress-fill')?.style.width === '100%'`
+      )
+    )
     assert.equal(openedOptions.at(-1)!.baudRate, 57600, 'original serial settings must be restored')
     await run(`window.api.closePort('COM991')`)
+    await run(
+      `(() => { const s = document.querySelector('[aria-label="芯片系列"]'); s.value = 'stm32'; s.dispatchEvent(new Event('change', {bubbles:true})); })()`
+    )
+    await run(
+      `(() => { const s = document.querySelector('[aria-label="烧录方式"]'); s.value = 'ymodem'; s.dispatchEvent(new Event('change', {bubbles:true})); })()`
+    )
+    await until(() =>
+      run(`Boolean(document.querySelector('[aria-label="烧录串口"] option[value="COM991"]'))`)
+    )
+    await run(
+      `(() => { const s = document.querySelector('[aria-label="烧录串口"]'); s.value = 'COM991'; s.dispatchEvent(new Event('change', {bubbles:true})); })()`
+    )
+    await run(
+      `Array.from(document.querySelectorAll('.firmware-panel button')).find(b => b.textContent === '选择固件').click()`
+    )
+    await until(() => run(`document.querySelectorAll('.firmware-file').length === 1`))
+    await run(
+      `Array.from(document.querySelectorAll('.firmware-options label')).find(l => l.textContent.includes('结束后恢复原串口连接')).querySelector('input').click()`
+    )
+    FakeSerialPort.ymodemMode = true
+    FakeSerialPort.autoHandshake = false
+    await run(`window.api.openPort(${JSON.stringify(serialOptions)})`)
+    await run(
+      `Array.from(document.querySelectorAll('.firmware-options label')).find(l => l.textContent.includes('监听 C 选口握手')).querySelector('input').click()`
+    )
+    await until(() =>
+      run(`window.api.getFirmwareListenState().then(s => s?.status === 'listening')`)
+    )
+    assert(
+      await run(
+        `Array.from(document.querySelectorAll('.firmware-panel button')).find(b => b.textContent === '开始烧录').disabled`
+      )
+    )
+    FakeSerialPort.latestYmodem!.emit('data', Buffer.from([0x43]))
+    await until(() => run(`window.api.getFirmwareListenState().then(s => s?.status === 'ready')`))
+    assert.deepEqual(FakeSerialPort.latestYmodem!.writes[0], Buffer.from([0x43]))
+    assert(
+      await run(
+        `document.querySelector('.firmware-status-title')?.textContent.includes('已收到并回复 0x43')`
+      )
+    )
+    assert.deepEqual(await run(`window.api.getOpenedPortPaths()`), [])
+    window.setContentSize(1280, 750)
+    await run(`document.querySelector('.firmware-options').scrollIntoView({ block: 'center' })`)
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    fs.writeFileSync(
+      path.join(root, '.tmp', 'ui-smoke', 'firmware-listen-ready.png'),
+      (await window.webContents.capturePage(undefined, { stayHidden: true })).toPNG()
+    )
+    await until(() =>
+      run(
+        `!Array.from(document.querySelectorAll('.firmware-panel button')).find(b => b.textContent === '开始烧录').disabled`
+      )
+    )
+    await run(
+      `Array.from(document.querySelectorAll('.firmware-panel button')).find(b => b.textContent === '开始烧录').click()`
+    )
+    await until(() => run(`window.api.getFirmwareState().then(s => s?.operation === 'flash')`))
+    await until(() => run(`window.api.getFirmwareState().then(s => !s.busy)`))
+    assert.equal(await run(`window.api.getFirmwareState().then(s => s.outcome)`), 'success')
+    assert.deepEqual(await run(`window.api.getOpenedPortPaths()`), ['COM991'])
+    await until(() =>
+      run(`document.querySelector('.firmware-status-meta')?.textContent.includes('4 B / 4 B')`)
+    )
+    assert(
+      await run(
+        `document.querySelector('.firmware-status-success .firmware-progress-fill')?.style.width === '100%'`
+      )
+    )
+    await until(() =>
+      run(
+        `(() => { const track = document.querySelector('.firmware-progress-track'); const fill = track?.querySelector('.firmware-progress-fill'); return track && fill && !track.classList.contains('is-indeterminate') && fill.getBoundingClientRect().width >= track.getBoundingClientRect().width * 0.99; })()`
+      )
+    )
+    window.setContentSize(1280, 750)
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    fs.writeFileSync(
+      path.join(root, '.tmp', 'ui-smoke', 'firmware-ymodem-complete.png'),
+      (await window.webContents.capturePage(undefined, { stayHidden: true })).toPNG()
+    )
+    await run(`window.api.closePort('COM991')`)
+    FakeSerialPort.ymodemMode = false
     for (const page of ['help', 'programming-manual']) {
       await run(`(() => { window.open(new URL('${page}/index.html', location.href).href); })()`)
       await until(() =>
@@ -241,7 +386,7 @@ app.whenReady().then(async () => {
     }
     assert.equal(errors.length, 0, errors.join('\n'))
     console.log(
-      'PASS: real Electron preload, firmware UI, simulated serial exclusion/restoration, and both React manuals with search and preserved code examples.'
+      'PASS: real Electron preload, STM32 Ymodem firmware UI/transfer, simulated serial exclusion/restoration, and both React manuals.'
     )
     clearTimeout(deadline)
     app.quit()
