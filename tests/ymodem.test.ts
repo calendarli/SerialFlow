@@ -19,7 +19,8 @@ class Receiver extends EventEmitter {
   private rejectOnce = false
   constructor(
     private eotMode: 'standard' | 'stm32' = 'standard',
-    retry = false
+    retry = false,
+    private versionBeforeFinalAck = false
   ) {
     super()
     this.rejectOnce = retry
@@ -63,10 +64,26 @@ class Receiver extends EventEmitter {
       assert.equal(data[1], 0)
       assert(data.subarray(3, 131).every((value) => value === 0))
       this.phase = 'done'
-      this.reply(ACK)
+      if (this.versionBeforeFinalAck) {
+        this.reply(...Buffer.from('boot=0.1.0-dev.1;app=0.1.2-dev.1;', 'ascii'))
+        this.reply(ACK)
+      } else this.reply(ACK)
     } else assert.fail('unexpected packet after final ACK')
   }
 }
+
+test('Ymodem accepts a version report before the final ACK', async () => {
+  const receiver = new Receiver('standard', false, true)
+  await sendYmodem(
+    receiver,
+    'firmware.bin',
+    Buffer.alloc(128, 0xa5),
+    new AbortController().signal,
+    () => {},
+    () => {}
+  )
+  assert.equal(receiver.acknowledged, 1)
+})
 
 test('Ymodem CRC16, metadata and padding match packet rules', () => {
   assert.equal(crc16Ymodem(Buffer.from('123456789')), 0x31c3)

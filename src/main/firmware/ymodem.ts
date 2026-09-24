@@ -165,7 +165,8 @@ async function acknowledged(
   controls: Controls,
   packet: Buffer,
   stage: string,
-  showTraffic = true
+  showTraffic = true,
+  allowVersionReport = false
 ): Promise<void> {
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     await controls.write(packet, showTraffic)
@@ -175,6 +176,16 @@ async function acknowledged(
     } catch (error) {
       if (!(error instanceof Error) || !error.message.includes('超时')) throw error
       continue
+    }
+    if (allowVersionReport && answer === 'b'.charCodeAt(0)) {
+      const report: number[] = [answer]
+      while (report.length < 96 && report.filter((byte) => byte === 0x3b).length < 2) {
+        report.push(await controls.read())
+      }
+      const message = Buffer.from(report).toString('ascii')
+      if (!/^boot=[\x20-\x7e]*;app=[\x20-\x7e]*;$/.test(message))
+        throw new Error('结束空包：版本信息格式无效')
+      answer = await controls.response()
     }
     if (answer === ACK) return
     // STM32 IAP receivers can request a CRC16 packet again with C after a bad packet.
@@ -245,7 +256,7 @@ export async function sendYmodem(
     if (!endConfirmed) throw new Error('EOT 未得到接收端确认')
     if ((await controls.response(FINISH_TIMEOUT)) !== CRC_REQUEST)
       throw new Error('EOT 后未收到空文件包请求 C')
-    await acknowledged(controls, ymodemPacket(0, Buffer.alloc(0), 128, 0), '结束空包')
+    await acknowledged(controls, ymodemPacket(0, Buffer.alloc(0), 128, 0), '结束空包', true, true)
     finished = true
   } finally {
     if (!finished)
