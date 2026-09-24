@@ -39,14 +39,17 @@ function loadSettings(): { request: FirmwareRequest; tools: Record<FirmwareFamil
       request: {
         ...defaults,
         family,
-        transport: family === 'stm32' && saved.transport === 'swd' ? 'swd' : 'uart',
+        transport:
+          family === 'stm32' && ['swd', 'ymodem'].includes(saved.transport)
+            ? saved.transport
+            : 'uart',
         baudRate:
           Number.isInteger(saved.baudRate) && saved.baudRate >= 1200 && saved.baudRate <= 3000000
             ? saved.baudRate
             : 115200,
         chip: espChips.includes(saved.chip) ? saved.chip : 'auto',
-        verify: saved.verify !== false,
-        reset: saved.reset !== false,
+        verify: saved.transport === 'ymodem' ? false : saved.verify !== false,
+        reset: saved.transport === 'ymodem' ? false : saved.reset !== false,
         restorePort: saved.restorePort === true,
         manualBoot: saved.manualBoot === true,
         connectMode: saved.connectMode === 'UR' ? 'UR' : 'NORMAL',
@@ -79,7 +82,8 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel(): React.JSX.
   const logRef = useRef<HTMLPreElement>(null)
   const toolSequence = useRef(0)
   const busy = pending || Boolean(state?.busy)
-  const serial = request.transport === 'uart'
+  const serial = request.transport !== 'swd'
+  const ymodem = request.transport === 'ymodem'
   const stm = request.family === 'stm32'
   const patch = (values: Partial<FirmwareRequest>): void =>
     setRequest((current) => ({ ...current, ...values }))
@@ -129,6 +133,10 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel(): React.JSX.
 
   useEffect(() => {
     const sequence = ++toolSequence.current
+    if (request.transport === 'ymodem') {
+      setTool(null)
+      return
+    }
     void window.api
       .getFirmwareTool(request.family, request.toolPath)
       .then((next) => {
@@ -141,7 +149,7 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel(): React.JSX.
       // eslint-disable-next-line react-hooks/exhaustive-deps -- This is a request generation counter, not a DOM ref; invalidate pending requests.
       toolSequence.current++
     }
-  }, [request.family, request.toolPath])
+  }, [request.family, request.toolPath, request.transport])
 
   useEffect(() => {
     const settings = {
@@ -189,7 +197,7 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel(): React.JSX.
     })
   const chooseFiles = (): Promise<void> =>
     perform(async () => {
-      const files = await window.api.chooseFirmwareFiles(request.family)
+      const files = await window.api.chooseFirmwareFiles(request.family, request.transport)
       if (files.length) patch({ files: stm ? files : [...request.files, ...files].slice(0, 16) })
     })
   const chooseTool = (): Promise<void> =>
@@ -214,8 +222,10 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel(): React.JSX.
     : Boolean(request.probe)
   const filesReady =
     request.files.length > 0 &&
-    request.files.every(
-      (file) => /\.hex$/i.test(file.path) || /^(0x[0-9a-f]+|\d+)$/i.test(file.address.trim())
+    request.files.every((file) =>
+      ymodem
+        ? /\.bin$/i.test(file.path)
+        : /\.hex$/i.test(file.path) || /^(0x[0-9a-f]+|\d+)$/i.test(file.address.trim())
     )
   const elapsed = state
     ? Math.max(0, Math.round(((state.finishedAt || now) - state.startedAt) / 1000))
@@ -242,9 +252,19 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel(): React.JSX.
               <select
                 aria-label="烧录方式"
                 value={request.transport}
-                onChange={(e) => patch({ transport: e.target.value as 'uart' | 'swd' })}
+                onChange={(e) => {
+                  const transport = e.target.value as FirmwareRequest['transport']
+                  patch({
+                    transport,
+                    files: [],
+                    verify: transport !== 'ymodem',
+                    reset: false,
+                    eraseAll: false
+                  })
+                }}
               >
-                <option value="uart">串口 UART</option>
+                <option value="uart">UART（芯片内置）</option>
+                {stm && <option value="ymodem">Ymodem（设备升级）</option>}
                 {stm && <option value="swd">ST-LINK / SWD</option>}
               </select>
             </label>
@@ -311,7 +331,9 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel(): React.JSX.
           {request.files.length === 0 ? (
             <p className="firmware-hint">
               {stm
-                ? '请选择 HEX 或 BIN 固件，HEX 地址从文件读取。'
+                ? ymodem
+                  ? '请选择 BIN 固件；设备 Bootloader 决定写入地址。'
+                  : '请选择 HEX 或 BIN 固件，HEX 地址从文件读取。'
                 : '添加一个合并 BIN，或多个分区 BIN；请按构建产物填写每个文件的写入地址。'}
             </p>
           ) : (
@@ -321,25 +343,27 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel(): React.JSX.
                   <span title={file.path}>
                     {file.name} <small>{(file.size / 1024).toFixed(1)} KB</small>
                   </span>
-                  <label>
-                    地址
-                    {stm && /\.hex$/i.test(file.path) ? (
-                      <span className="firmware-auto-address">从 HEX 读取</span>
-                    ) : (
-                      <input
-                        aria-label={`${file.name} 写入地址`}
-                        value={file.address}
-                        placeholder="0x…（按构建配置）"
-                        onChange={(e) =>
-                          patch({
-                            files: request.files.map((f, i) =>
-                              i === index ? { ...f, address: e.target.value } : f
-                            )
-                          })
-                        }
-                      />
-                    )}
-                  </label>
+                  {!ymodem && (
+                    <label>
+                      地址
+                      {stm && /\.hex$/i.test(file.path) ? (
+                        <span className="firmware-auto-address">从 HEX 读取</span>
+                      ) : (
+                        <input
+                          aria-label={`${file.name} 写入地址`}
+                          value={file.address}
+                          placeholder="0x…（按构建配置）"
+                          onChange={(e) =>
+                            patch({
+                              files: request.files.map((f, i) =>
+                                i === index ? { ...f, address: e.target.value } : f
+                              )
+                            })
+                          }
+                        />
+                      )}
+                    </label>
+                  )}
                   <button
                     aria-label={`移除 ${file.name}`}
                     onClick={() => patch({ files: request.files.filter((_, i) => i !== index) })}
@@ -388,43 +412,49 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel(): React.JSX.
                     手动进入下载模式
                   </label>
                 )}
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={request.eraseAll}
-                    onChange={(e) => patch({ eraseAll: e.target.checked })}
-                  />
-                  整片擦除（清除全部数据）
-                </label>
+                {!ymodem && (
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={request.eraseAll}
+                      onChange={(e) => patch({ eraseAll: e.target.checked })}
+                    />
+                    整片擦除（清除全部数据）
+                  </label>
+                )}
               </div>
-              <div className="firmware-row firmware-tool-path">
-                <span title={tool?.path || request.toolPath}>
-                  {request.toolPath || tool?.path || '自动查找工具'}
-                </span>
-                <button onClick={() => void chooseTool()}>选择工具</button>
-                <button
-                  onClick={() => {
-                    setTool(null)
-                    patch({ toolPath: '' })
-                    setToolPaths((current) => ({ ...current, [request.family]: '' }))
-                  }}
-                >
-                  自动查找
-                </button>
-                <button
-                  onClick={() =>
-                    void perform(async () =>
-                      setTool(await window.api.getFirmwareTool(request.family, request.toolPath))
-                    )
-                  }
-                >
-                  重新检测
-                </button>
-              </div>
+              {!ymodem && (
+                <div className="firmware-row firmware-tool-path">
+                  <span title={tool?.path || request.toolPath}>
+                    {request.toolPath || tool?.path || '自动查找工具'}
+                  </span>
+                  <button onClick={() => void chooseTool()}>选择工具</button>
+                  <button
+                    onClick={() => {
+                      setTool(null)
+                      patch({ toolPath: '' })
+                      setToolPaths((current) => ({ ...current, [request.family]: '' }))
+                    }}
+                  >
+                    自动查找
+                  </button>
+                  <button
+                    onClick={() =>
+                      void perform(async () =>
+                        setTool(await window.api.getFirmwareTool(request.family, request.toolPath))
+                      )
+                    }
+                  >
+                    重新检测
+                  </button>
+                </div>
+              )}
             </div>
           )}
           <div className="firmware-row firmware-options">
-            {stm ? (
+            {ymodem ? (
+              <span>接收端按 Ymodem CRC16 确认数据；Flash 校验由设备升级程序负责</span>
+            ) : stm ? (
               <label>
                 <input
                   type="checkbox"
@@ -456,20 +486,24 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel(): React.JSX.
                 结束后恢复原串口连接
               </label>
             )}
-            <span className={tool?.available ? 'firmware-tool-ok' : 'firmware-tool-missing'}>
-              {tool
-                ? tool.available
-                  ? `${stm ? 'CubeProgrammer' : 'esptool'} ${tool.version}`
-                  : tool.error
-                : '正在检测烧录工具…'}
-            </span>
+            {!ymodem && (
+              <span className={tool?.available ? 'firmware-tool-ok' : 'firmware-tool-missing'}>
+                {tool
+                  ? tool.available
+                    ? `${stm ? 'CubeProgrammer' : 'esptool'} ${tool.version}`
+                    : tool.error
+                  : '正在检测烧录工具…'}
+              </span>
+            )}
           </div>
         </fieldset>
         <p className="firmware-hint">
           {stm
-            ? serial
-              ? '按芯片手册设置 BOOT 并复位进入系统 Bootloader；烧录完成后恢复 BOOT 配置并手动复位。'
-              : '连接 SWDIO、SWCLK、GND 和目标电压参考；复位下连接还需要 NRST。'
+            ? ymodem
+              ? '先让设备自带 Bootloader 进入 Ymodem 接收状态；仅发送 BIN，须收到接收端 C 握手和各阶段确认。传输成功不等于已独立校验 Flash。'
+              : serial
+                ? '按芯片手册设置 BOOT 并复位进入系统 Bootloader；烧录完成后恢复 BOOT 配置并手动复位。'
+                : '连接 SWDIO、SWCLK、GND 和目标电压参考；复位下连接还需要 NRST。'
             : '支持 DTR/RTS 的开发板可自动下载；否则勾选手动模式，按 BOOT/RESET 进入下载状态。'}
           {serial && ' 烧录时独占所选串口，自动发送任务不会自动恢复。'}
         </p>
@@ -517,15 +551,17 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel(): React.JSX.
             </button>
           ) : (
             <>
-              <button
-                disabled={busy || !targetReady || !tool?.available}
-                onClick={() => void start('detect')}
-              >
-                检测芯片
-              </button>
+              {!ymodem && (
+                <button
+                  disabled={busy || !targetReady || !tool?.available}
+                  onClick={() => void start('detect')}
+                >
+                  检测芯片
+                </button>
+              )}
               <button
                 className="send-button"
-                disabled={busy || !targetReady || !filesReady || !tool?.available}
+                disabled={busy || !targetReady || !filesReady || (!ymodem && !tool?.available)}
                 onClick={() => void start('flash')}
               >
                 开始烧录

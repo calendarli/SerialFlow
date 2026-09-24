@@ -3,8 +3,10 @@ import { existsSync } from 'fs'
 import { mkdtemp, rm, writeFile } from 'fs/promises'
 import { basename, delimiter, dirname, join } from 'path'
 import { randomUUID } from 'crypto'
+import { SerialPort } from 'serialport'
 import type { FirmwareFamily, FirmwareRequest, FirmwareState, FirmwareTool } from '@common/firmware'
-import { hexAddress, inspectFirmware, validateRequest } from './validation'
+import { hexAddress, inspectFirmware, inspectYmodemFirmware, validateRequest } from './validation'
+import { sendYmodem, type YmodemPort } from './ymodem'
 
 type FirmwareProcess = import('node:events').EventEmitter &
   Pick<ChildProcess, 'pid' | 'stdout' | 'stderr' | 'kill'>
@@ -29,10 +31,14 @@ type Hooks = {
   temp: string
   emit: (state: FirmwareState) => void
   acquire: (request: FirmwareRequest) => Promise<() => Promise<void>>
+  openYmodem?: (
+    request: FirmwareRequest
+  ) => Promise<{ port: YmodemPort; close: () => Promise<void> }>
 }
 type Command = { args: string[]; phase: string }
 
 export function flashCommands(request: FirmwareRequest, paths: string[]): Command[] {
+  if (request.transport === 'ymodem') throw new Error('Ymodem 不使用 STM32CubeProgrammer 命令')
   if (request.family === 'stm32') {
     const args = ['-c', request.transport === 'swd' ? 'port=SWD' : `port=${request.port}`]
     if (request.transport === 'swd') args.push(`sn=${request.probe}`, `mode=${request.connectMode}`)
@@ -76,6 +82,7 @@ export class FirmwareManager {
   private execution: Promise<void> | null = null
   private auxiliary = false
   private termination: Promise<void> | null = null
+  private abortYmodem: AbortController | null = null
 
   constructor(private hooks: Hooks) {}
 
@@ -295,12 +302,14 @@ export class FirmwareManager {
     if (this.state?.busy || this.auxiliary) throw new Error('已有任务正在运行，请等待完成')
     if (!['detect', 'flash'].includes(operation)) throw new Error('无效的烧录操作')
     validateRequest(request, operation === 'flash')
+    if (request.transport === 'ymodem' && operation !== 'flash')
+      throw new Error('Ymodem 接收端不提供通用芯片检测命令')
     this.cancelled = false
     this.state = {
       id: randomUUID(),
       busy: true,
       operation,
-      port: request.transport === 'uart' ? request.port : '',
+      port: request.transport === 'swd' ? '' : request.port,
       phase: '检查环境与固件',
       percent: null,
       startedAt: Date.now(),
@@ -316,6 +325,50 @@ export class FirmwareManager {
     let directory: string | undefined
     const state = this.state!
     try {
+      if (request.transport === 'ymodem') {
+        const data = await inspectYmodemFirmware(request)
+        if (this.cancelled) throw new Error('任务已停止')
+        this.log(`${request.files[0].name}：${data.length} 字节；由设备 Ymodem 接收端决定写入地址`)
+        const selectedName = basename(request.files[0].path)
+        const transferName = /^[\x20-\x7e]{1,64}$/.test(selectedName)
+          ? selectedName
+          : 'firmware.bin'
+        if (transferName !== selectedName)
+          this.log(`Ymodem 文件名使用 ${transferName}（原文件名无法编码为标准 ASCII）`)
+        release = await this.hooks.acquire(request)
+        if (this.cancelled) throw new Error('任务已停止')
+        const connection = await (this.hooks.openYmodem?.(request) ?? this.openYmodem(request))
+        const controller = new AbortController()
+        this.abortYmodem = controller
+        try {
+          if (this.cancelled) controller.abort()
+          await sendYmodem(
+            connection.port,
+            transferName,
+            data,
+            controller.signal,
+            (bytes) => {
+              state.percent = Math.floor((bytes * 100) / data.length)
+              this.publish()
+            },
+            (stage) => {
+              state.phase = stage
+              this.log(stage)
+            }
+          )
+        } finally {
+          this.abortYmodem = null
+          await connection.close()
+        }
+        if (this.cancelled) throw new Error('任务已停止')
+        this.log(
+          'Ymodem 接收端已确认全部数据和结束空包；设备是否完成 Flash 校验需由其升级程序报告。'
+        )
+        state.outcome = 'success'
+        state.phase = 'Ymodem 传输完成'
+        state.percent = 100
+        return
+      }
       const tool = await this.toolInfo(request.family, request.toolPath)
       if (!tool.available) throw new Error(tool.error)
       this.log(`工具：${tool.path} · ${tool.version}`)
@@ -416,7 +469,8 @@ export class FirmwareManager {
   cancel(id: string): void {
     if (!this.state?.busy || this.state.id !== id) return
     this.cancelled = true
-    this.state.phase = '正在停止，请等待工具退出…'
+    this.state.phase = '正在停止传输…'
+    this.abortYmodem?.abort()
     this.terminateChild()
     this.publish(true)
   }
@@ -424,5 +478,30 @@ export class FirmwareManager {
   async shutdown(): Promise<void> {
     if (this.state?.busy) this.cancel(this.state.id)
     await this.execution
+  }
+
+  private async openYmodem(
+    request: FirmwareRequest
+  ): Promise<{ port: YmodemPort; close: () => Promise<void> }> {
+    const port = new SerialPort({
+      path: request.port,
+      baudRate: request.baudRate,
+      dataBits: 8,
+      stopBits: 1,
+      parity: 'none',
+      autoOpen: false
+    })
+    await new Promise<void>((resolve, reject) =>
+      port.open((error) => (error ? reject(error) : resolve()))
+    )
+    return {
+      port,
+      close: () =>
+        port.isOpen
+          ? new Promise<void>((resolve, reject) =>
+              port.close((error) => (error ? reject(error) : resolve()))
+            )
+          : Promise.resolve()
+    }
   }
 }

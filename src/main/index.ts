@@ -368,7 +368,7 @@ function registerSerialHandlers(): void {
     emit: (state) => emit('firmware:progress', state),
     acquire: (request) =>
       enqueuePortOperation(async () => {
-        if (request.transport !== 'uart') return async () => {}
+        if (request.transport === 'swd') return async () => {}
         const path = request.port
         assertPortAvailable(path)
         if (fileTransferManager?.isPortBusy(path))
@@ -411,27 +411,40 @@ function registerSerialHandlers(): void {
     })
     return result.canceled ? null : firmwareManager!.resolveTool(family, result.filePaths[0])
   })
-  ipcMain.handle('firmware:chooseFiles', async (_event, family: FirmwareFamily) => {
-    if (!['stm32', 'esp32'].includes(family)) throw new Error('无效芯片系列')
-    const result = await dialog.showOpenDialog({
-      title: '选择烧录固件',
-      properties: family === 'esp32' ? ['openFile', 'multiSelections'] : ['openFile'],
-      filters: [{ name: '固件', extensions: family === 'stm32' ? ['hex', 'bin'] : ['bin'] }]
-    })
-    if (result.canceled) return []
-    return Promise.all(
-      result.filePaths.map(async (path) => ({
-        path,
-        name: basename(path),
-        size: (await stat(path)).size,
-        address: family === 'stm32' ? '0x08000000' : ''
-      }))
-    )
-  })
+  ipcMain.handle(
+    'firmware:chooseFiles',
+    async (_event, family: FirmwareFamily, transport: FirmwareRequest['transport']) => {
+      if (!['stm32', 'esp32'].includes(family)) throw new Error('无效芯片系列')
+      if (
+        !['uart', 'swd', 'ymodem'].includes(transport) ||
+        (transport === 'ymodem' && family !== 'stm32')
+      )
+        throw new Error('无效的烧录方式')
+      const result = await dialog.showOpenDialog({
+        title: '选择烧录固件',
+        properties: family === 'esp32' ? ['openFile', 'multiSelections'] : ['openFile'],
+        filters: [
+          {
+            name: '固件',
+            extensions: family === 'stm32' && transport !== 'ymodem' ? ['hex', 'bin'] : ['bin']
+          }
+        ]
+      })
+      if (result.canceled) return []
+      return Promise.all(
+        result.filePaths.map(async (path) => ({
+          path,
+          name: basename(path),
+          size: (await stat(path)).size,
+          address: family === 'stm32' ? '0x08000000' : ''
+        }))
+      )
+    }
+  )
   ipcMain.handle(
     'firmware:start',
     async (_event, request: FirmwareRequest, operation: 'detect' | 'flash') => {
-      if (operation === 'flash' && request?.eraseAll) {
+      if (operation === 'flash' && request?.eraseAll && request.transport !== 'ymodem') {
         const result = await dialog.showMessageBox({
           type: 'warning',
           title: '确认整片擦除',
@@ -678,12 +691,16 @@ function registerSerialHandlers(): void {
     if (kind === 'quick-commands')
       return {
         title: '快捷指令',
-        defaultPath: lastDirectory ? join(lastDirectory, 'SerialFlow-quick-commands.json') : 'SerialFlow-quick-commands.json'
+        defaultPath: lastDirectory
+          ? join(lastDirectory, 'SerialFlow-quick-commands.json')
+          : 'SerialFlow-quick-commands.json'
       }
     if (kind === 'auto-replies')
       return {
         title: '自动回复规则',
-        defaultPath: lastDirectory ? join(lastDirectory, 'SerialFlow-auto-reply-rules.json') : 'SerialFlow-auto-reply-rules.json'
+        defaultPath: lastDirectory
+          ? join(lastDirectory, 'SerialFlow-auto-reply-rules.json')
+          : 'SerialFlow-auto-reply-rules.json'
       }
     throw new Error('不支持的配置类型')
   }

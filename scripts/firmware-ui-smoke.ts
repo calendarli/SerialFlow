@@ -19,10 +19,13 @@ let finishFirmware: (() => void) | undefined
 const openedOptions: SerialOptions[] = []
 type SerialOptions = { path: string; baudRate: number }
 class FakeSerialPort extends EventEmitter {
+  static ymodemMode = false
   path: string
   settings: SerialOptions
   baudRate: number
   isOpen: boolean
+  private ymodemPhase: 'header' | 'data' | 'final' = 'header'
+  private ymodem: boolean
   static async list() {
     return [{ path: 'COM991', manufacturer: 'Test fixture (no hardware)' }]
   }
@@ -32,11 +35,15 @@ class FakeSerialPort extends EventEmitter {
     this.settings = options
     this.baudRate = options.baudRate
     this.isOpen = false
+    this.ymodem = FakeSerialPort.ymodemMode
     openedOptions.push(options)
   }
   open(callback: (error: Error | null) => void) {
     this.isOpen = true
-    setImmediate(() => callback(null))
+    setImmediate(() => {
+      callback(null)
+      if (this.ymodem) setTimeout(() => this.emit('data', Buffer.from([0x43])), 0)
+    })
   }
   close(callback: (error: Error | null) => void) {
     this.isOpen = false
@@ -45,8 +52,20 @@ class FakeSerialPort extends EventEmitter {
       callback(null)
     })
   }
-  write(_data: unknown, callback: (error: Error | null) => void) {
-    setImmediate(() => callback(null))
+  write(data: Buffer, callback: (error: Error | null) => void) {
+    setImmediate(() => {
+      callback(null)
+      if (!this.ymodem) return
+      let response: number[]
+      if (data[0] === 0x04) {
+        this.ymodemPhase = 'final'
+        response = [0x06, 0x43]
+      } else if (this.ymodemPhase === 'header') {
+        this.ymodemPhase = 'data'
+        response = [0x06, 0x43]
+      } else response = [0x06]
+      this.emit('data', Buffer.from(response))
+    })
   }
   drain(callback: (error: Error | null) => void) {
     setImmediate(() => callback(null))
@@ -118,6 +137,21 @@ app.whenReady().then(async () => {
     )
     assert(await run(`!document.querySelector('.firmware-host').hidden`))
     assert(await run(`document.querySelector('[aria-label="芯片系列"]').value === 'stm32'`))
+    await run(
+      `(() => { const s = document.querySelector('[aria-label="烧录方式"]'); s.value = 'ymodem'; s.dispatchEvent(new Event('change', {bubbles:true})); })()`
+    )
+    assert(await run(`document.querySelector('[aria-label="烧录方式"]').value === 'ymodem'`))
+    assert(
+      await run(
+        `!Array.from(document.querySelectorAll('.firmware-panel button')).some(b => b.textContent === '检测芯片')`
+      )
+    )
+    assert(await run(`!document.querySelector('.firmware-tool-path')`))
+    await run(
+      `Array.from(document.querySelectorAll('.firmware-panel button')).find(b => b.textContent === '选择固件').click()`
+    )
+    await until(() => run(`document.querySelectorAll('.firmware-file').length === 1`))
+    assert(await run(`!document.querySelector('[aria-label$="写入地址"]')`))
     await run(
       `(() => { const s = document.querySelector('[aria-label="芯片系列"]'); s.value = 'esp32'; s.dispatchEvent(new Event('change', {bubbles:true})); })()`
     )
@@ -203,6 +237,22 @@ app.whenReady().then(async () => {
     assert.deepEqual(await run(`window.api.getOpenedPortPaths()`), ['COM991'])
     assert.equal(openedOptions.at(-1)!.baudRate, 57600, 'original serial settings must be restored')
     await run(`window.api.closePort('COM991')`)
+    FakeSerialPort.ymodemMode = true
+    await run(`window.api.openPort(${JSON.stringify(serialOptions)})`)
+    const ymodemRequest = {
+      ...request,
+      family: 'stm32',
+      transport: 'ymodem',
+      verify: false,
+      reset: false,
+      files: [{ path: fixture, name: 'application.bin', size: 4, address: '' }]
+    }
+    await run(`window.api.startFirmware(${JSON.stringify(ymodemRequest)}, 'flash')`)
+    await until(() => run(`window.api.getFirmwareState().then(s => !s.busy)`))
+    assert.equal(await run(`window.api.getFirmwareState().then(s => s.outcome)`), 'success')
+    assert.deepEqual(await run(`window.api.getOpenedPortPaths()`), ['COM991'])
+    await run(`window.api.closePort('COM991')`)
+    FakeSerialPort.ymodemMode = false
     for (const page of ['help', 'programming-manual']) {
       await run(`(() => { window.open(new URL('${page}/index.html', location.href).href); })()`)
       await until(() =>
@@ -241,7 +291,7 @@ app.whenReady().then(async () => {
     }
     assert.equal(errors.length, 0, errors.join('\n'))
     console.log(
-      'PASS: real Electron preload, firmware UI, simulated serial exclusion/restoration, and both React manuals with search and preserved code examples.'
+      'PASS: real Electron preload, STM32 Ymodem firmware UI/transfer, simulated serial exclusion/restoration, and both React manuals.'
     )
     clearTimeout(deadline)
     app.quit()

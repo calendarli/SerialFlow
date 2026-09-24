@@ -59,15 +59,30 @@ declare global {
       getFirmwareTool(family: FirmwareFamily, path: string): Promise<FirmwareTool>
       listFirmwareProbes(path: string): Promise<string[]>
       chooseFirmwareTool(family: FirmwareFamily): Promise<string | null>
-      chooseFirmwareFiles(family: FirmwareFamily): Promise<FirmwareFile[]>
+      chooseFirmwareFiles(
+        family: FirmwareFamily,
+        transport: FirmwareRequest['transport']
+      ): Promise<FirmwareFile[]>
       startFirmware(request: FirmwareRequest, operation: 'detect' | 'flash'): Promise<string | null>
       cancelFirmware(id: string): Promise<void>
       saveFirmwareLog(): Promise<string | null>
       onFirmwareProgress(callback: (state: FirmwareState) => void): () => void
       openDataWindow(id: string): Promise<void>
       closeDataWindow(id: string): Promise<void>
-      publishDataWindowPlot(value: { id: string; name: string; values: Record<string, number>; timestamp: number }): Promise<void>
-      onDataWindowPlot(callback: (value: { id: string; name: string; values: Record<string, number>; timestamp: number }) => void): () => void
+      publishDataWindowPlot(value: {
+        id: string
+        name: string
+        values: Record<string, number>
+        timestamp: number
+      }): Promise<void>
+      onDataWindowPlot(
+        callback: (value: {
+          id: string
+          name: string
+          values: Record<string, number>
+          timestamp: number
+        }) => void
+      ): () => void
       getOpenedPortPaths(): Promise<string[]>
       getAlwaysOnTop(): Promise<boolean>
       setAlwaysOnTop(enabled: boolean): Promise<boolean>

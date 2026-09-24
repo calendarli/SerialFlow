@@ -22,7 +22,7 @@ SerialFlow 将多串口收发、可编程指令、实时曲线和固件烧录集
 | 实时分析     | 多通道曲线、采样值查看、PID 响应指标与调参建议                                  |
 | 独立数据窗口 | 按 HEX 模板提取字段，显示 HEX / DEC，支持编程换算、单位、符号、小数位和窗口置顶 |
 | Modbus RTU   | 保持寄存器读取与轮询、H06 / H10 写入、多种数值格式和字序                        |
-| 文件与固件   | 串口文件传输、STM32 UART / ST-LINK 烧录、ESP32 单个或多个 BIN 烧录              |
+| 文件与固件   | 串口文件传输、STM32 UART / Ymodem / ST-LINK 烧录、ESP32 单个或多个 BIN 烧录     |
 | 配置共享     | 导入 / 导出 `.serialflow` 工程、快捷指令、自动回复及 Modbus 配置                |
 | 虚拟串口     | 在 Windows 上通过配套 UMDF 2 驱动管理本地虚拟串口对                             |
 
@@ -45,6 +45,12 @@ SerialFlow 将多串口收发、可编程指令、实时曲线和固件烧录集
 应用内“帮助”提供详细操作说明；快捷指令与自动回复编辑区可打开编程手册。“关于”页面提供更新检查与后续更新操作。
 
 ## 进阶使用
+
+### STM32 Ymodem 固件传输
+
+在“固件烧录”中选择 STM32 和“Ymodem（设备升级）”，选择 BIN 固件及设备串口、波特率。先让设备自带的 Bootloader 进入 Ymodem 接收状态，再开始传输。此模式使用 8N1、CRC16、文件信息包、逐包确认与重传、EOT 和结束空包；它不调用 STM32CubeProgrammer，也不支持 STM32 芯片内置的系统 Bootloader。系统 Bootloader 请选“UART（芯片内置）”。
+
+Ymodem 的文件名、大小和数据由接收端按协议处理，写入地址、擦除范围、最终 Flash 校验与复位均由设备 Bootloader 决定。SerialFlow 显示“传输完成”表示接收端确认了协议结束空包，不代表已独立校验芯片中的固件。设备的升级程序须明确报告最终结果。固件路径含非 ASCII 文件名时，协议中发送的名称为 `firmware.bin`，文件内容不变。
 
 ### 从其他串口工具导入快捷指令
 
@@ -117,19 +123,19 @@ SerialFlow 原创代码采用 **GPL-3.0-only（仅第 3 版）**，完整条款�
 
 SerialFlow 串口调试工具，包含多串口交互、实时曲线、数据窗口、自动回复、固件烧录与虚拟串口。
 
-| 路径 | 职责 |
-| --- | --- |
-| `src/main/index.ts` | Electron 主进程入口、窗口与 IPC |
-| `src/preload/index.ts` | 受限 IPC 桥接 |
-| `src/preload/index.d.ts` | 界面调用类型 |
-| `src/renderer/src/App.tsx` | React 主界面与业务交互 |
-| `src/common/` | 跨进程共享类型与定义 |
-| `src/main/firmware/` | 固件校验与烧录任务 |
-| `src/renderer/src/scripts/` | QuickJS 脚本与 Worker |
-| `src/renderer/help/` | 帮助页面入口 |
-| `src/renderer/programming-manual/` | 编程手册入口 |
-| `driver/SerialFlowVirtualSerial/` | Windows UMDF 驱动和管理器 |
-| `tests/` | Bun 自动化测试 |
+| 路径                               | 职责                            |
+| ---------------------------------- | ------------------------------- |
+| `src/main/index.ts`                | Electron 主进程入口、窗口与 IPC |
+| `src/preload/index.ts`             | 受限 IPC 桥接                   |
+| `src/preload/index.d.ts`           | 界面调用类型                    |
+| `src/renderer/src/App.tsx`         | React 主界面与业务交互          |
+| `src/common/`                      | 跨进程共享类型与定义            |
+| `src/main/firmware/`               | 固件校验与烧录任务              |
+| `src/renderer/src/scripts/`        | QuickJS 脚本与 Worker           |
+| `src/renderer/help/`               | 帮助页面入口                    |
+| `src/renderer/programming-manual/` | 编程手册入口                    |
+| `driver/SerialFlowVirtualSerial/`  | Windows UMDF 驱动和管理器       |
+| `tests/`                           | Bun 自动化测试                  |
 
 ### 项目约束
 

@@ -2,7 +2,7 @@ export type FirmwareFamily = 'stm32' | 'esp32'
 export type FirmwareFile = { path: string; name: string; size: number; address: string }
 export type FirmwareRequest = {
   family: FirmwareFamily
-  transport: 'uart' | 'swd'
+  transport: 'uart' | 'swd' | 'ymodem'
   port: string
   probe: string
   chip: string

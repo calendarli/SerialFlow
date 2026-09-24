@@ -50,8 +50,8 @@ const api = {
     ipcRenderer.invoke('firmware:tool', family, path),
   listFirmwareProbes: (path: string) => ipcRenderer.invoke('firmware:probes', path),
   chooseFirmwareTool: (family: FirmwareFamily) => ipcRenderer.invoke('firmware:chooseTool', family),
-  chooseFirmwareFiles: (family: FirmwareFamily) =>
-    ipcRenderer.invoke('firmware:chooseFiles', family),
+  chooseFirmwareFiles: (family: FirmwareFamily, transport: FirmwareRequest['transport']) =>
+    ipcRenderer.invoke('firmware:chooseFiles', family, transport),
   startFirmware: (request: FirmwareRequest, operation: 'detect' | 'flash') =>
     ipcRenderer.invoke('firmware:start', request, operation),
   cancelFirmware: (id: string) => ipcRenderer.invoke('firmware:cancel', id),
@@ -64,9 +64,24 @@ const api = {
   },
   openDataWindow: (id: string): Promise<void> => ipcRenderer.invoke('dataWindow:open', id),
   closeDataWindow: (id: string): Promise<void> => ipcRenderer.invoke('dataWindow:close', id),
-  publishDataWindowPlot: (value: { id: string; name: string; values: Record<string, number>; timestamp: number }): Promise<void> => ipcRenderer.invoke('dataWindow:plot', value),
-  onDataWindowPlot: (callback: (value: { id: string; name: string; values: Record<string, number>; timestamp: number }) => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, value: { id: string; name: string; values: Record<string, number>; timestamp: number }): void => callback(value)
+  publishDataWindowPlot: (value: {
+    id: string
+    name: string
+    values: Record<string, number>
+    timestamp: number
+  }): Promise<void> => ipcRenderer.invoke('dataWindow:plot', value),
+  onDataWindowPlot: (
+    callback: (value: {
+      id: string
+      name: string
+      values: Record<string, number>
+      timestamp: number
+    }) => void
+  ) => {
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      value: { id: string; name: string; values: Record<string, number>; timestamp: number }
+    ): void => callback(value)
     ipcRenderer.on('dataWindow:plot', listener)
     return () => ipcRenderer.removeListener('dataWindow:plot', listener)
   },
