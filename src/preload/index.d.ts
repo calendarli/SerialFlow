@@ -4,6 +4,7 @@ import type { UpdateState } from '@common/update'
 import type {
   FirmwareFamily,
   FirmwareFile,
+  FirmwareListenState,
   FirmwareRequest,
   FirmwareState,
   FirmwareTool
@@ -56,6 +57,10 @@ declare global {
       installUpdate(): Promise<void>
       onUpdateState(callback: (state: UpdateState) => void): () => void
       getFirmwareState(): Promise<FirmwareState | null>
+      getFirmwareListenState(): Promise<FirmwareListenState | null>
+      startFirmwareListen(request: FirmwareRequest): Promise<void>
+      stopFirmwareListen(): Promise<void>
+      onFirmwareListen(callback: (state: FirmwareListenState | null) => void): () => void
       getFirmwareTool(family: FirmwareFamily, path: string): Promise<FirmwareTool>
       listFirmwareProbes(path: string): Promise<string[]>
       chooseFirmwareTool(family: FirmwareFamily): Promise<string | null>

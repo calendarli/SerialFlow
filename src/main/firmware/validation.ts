@@ -81,7 +81,16 @@ export function validateRequest(request: FirmwareRequest, flash: boolean): void 
   if (!['NORMAL', 'UR'].includes(request.connectMode)) throw new Error('无效的连接模式')
   if (request.family === 'esp32' && !(espChips as readonly string[]).includes(request.chip))
     throw new Error('不支持的 ESP32 型号')
-  for (const key of ['verify', 'reset', 'restorePort', 'eraseAll', 'manualBoot'] as const)
+  if (request.listenForC && request.transport !== 'ymodem')
+    throw new Error('监听 C 握手仅用于 STM32 Ymodem')
+  for (const key of [
+    'verify',
+    'reset',
+    'restorePort',
+    'listenForC',
+    'eraseAll',
+    'manualBoot'
+  ] as const)
     if (typeof request[key] !== 'boolean') throw new Error('烧录选项无效')
   if (typeof request.toolPath !== 'string') throw new Error('工具路径无效')
   if (

@@ -4,7 +4,13 @@ import { mkdtemp, rm, writeFile } from 'fs/promises'
 import { basename, delimiter, dirname, join } from 'path'
 import { randomUUID } from 'crypto'
 import { SerialPort } from 'serialport'
-import type { FirmwareFamily, FirmwareRequest, FirmwareState, FirmwareTool } from '@common/firmware'
+import type {
+  FirmwareFamily,
+  FirmwareListenState,
+  FirmwareRequest,
+  FirmwareState,
+  FirmwareTool
+} from '@common/firmware'
 import { hexAddress, inspectFirmware, inspectYmodemFirmware, validateRequest } from './validation'
 import { sendYmodem, type YmodemPort } from './ymodem'
 
@@ -30,12 +36,27 @@ type Hooks = {
   resources: string
   temp: string
   emit: (state: FirmwareState) => void
+  emitListen?: (state: FirmwareListenState | null) => void
   acquire: (request: FirmwareRequest) => Promise<() => Promise<void>>
   openYmodem?: (
     request: FirmwareRequest
   ) => Promise<{ port: YmodemPort; close: () => Promise<void> }>
 }
 type Command = { args: string[]; phase: string }
+type YmodemConnection = { port: YmodemPort; close: () => Promise<void> }
+type ListeningSession = {
+  request: FirmwareRequest
+  closed: boolean
+  release?: () => Promise<void>
+  connection?: YmodemConnection
+  opening?: Promise<void>
+  cleanup?: Promise<void>
+  writes: Promise<void>
+  writeError?: Error
+  onData?: (chunk: Buffer) => void
+  onError?: (error: Error) => void
+  onClose?: () => void
+}
 
 export function flashCommands(request: FirmwareRequest, paths: string[]): Command[] {
   if (request.transport === 'ymodem') throw new Error('Ymodem 不使用 STM32CubeProgrammer 命令')
@@ -83,11 +104,182 @@ export class FirmwareManager {
   private auxiliary = false
   private termination: Promise<void> | null = null
   private abortYmodem: AbortController | null = null
+  private listening: ListeningSession | null = null
+  private listenState: FirmwareListenState | null = null
+  private listeningCleanup: Promise<void> | null = null
 
   constructor(private hooks: Hooks) {}
 
   snapshot(): FirmwareState | null {
     return this.state ? { ...this.state, logs: [...this.state.logs] } : null
+  }
+
+  listenSnapshot(): FirmwareListenState | null {
+    return this.listenState ? { ...this.listenState } : null
+  }
+
+  private setListenState(state: FirmwareListenState | null): void {
+    this.listenState = state
+    this.hooks.emitListen?.(this.listenSnapshot())
+  }
+
+  private cleanupListening(session: ListeningSession): Promise<void> {
+    session.cleanup ??= (async () => {
+      if (session.connection) {
+        if (session.onData) session.connection.port.off('data', session.onData)
+        if (session.onError) session.connection.port.off('error', session.onError)
+        if (session.onClose) session.connection.port.off('close', session.onClose)
+        try {
+          await session.connection.close()
+        } finally {
+          await session.release?.()
+        }
+      } else await session.release?.()
+    })()
+    return session.cleanup
+  }
+
+  private failListening(session: ListeningSession, error: Error): void {
+    if (this.listening !== session || session.closed) return
+    session.closed = true
+    this.listening = null
+    this.setListenState({
+      port: session.request.port,
+      baudRate: session.request.baudRate,
+      status: 'error',
+      receivedCount: this.listenState?.receivedCount ?? 0,
+      error: error.message
+    })
+    const cleanup = this.cleanupListening(session).catch(() => {})
+    this.listeningCleanup = cleanup
+    void cleanup.finally(() => {
+      if (this.listeningCleanup === cleanup) this.listeningCleanup = null
+    })
+  }
+
+  async startListening(request: FirmwareRequest): Promise<void> {
+    await this.listeningCleanup
+    validateRequest(request, false)
+    if (request.family !== 'stm32' || request.transport !== 'ymodem' || !request.listenForC)
+      throw new Error('监听 C 握手仅用于 STM32 Ymodem')
+    if (this.state?.busy || this.auxiliary || this.listening)
+      throw new Error('已有烧录或监听任务正在运行')
+    const session: ListeningSession = {
+      request: structuredClone(request),
+      closed: false,
+      writes: Promise.resolve()
+    }
+    this.listening = session
+    this.setListenState({
+      port: request.port,
+      baudRate: request.baudRate,
+      status: 'opening',
+      receivedCount: 0
+    })
+    session.opening = (async () => {
+      try {
+        session.release = await this.hooks.acquire(request)
+        if (session.closed) return
+        session.connection = await (this.hooks.openYmodem?.(request) ?? this.openYmodem(request))
+        if (session.closed) return
+        const port = session.connection.port
+        session.onData = (chunk) => {
+          if (session.closed) return
+          for (const byte of chunk) {
+            if (byte !== 0x43) continue
+            session.writes = session.writes
+              .then(
+                () =>
+                  new Promise<void>((resolve, reject) => {
+                    if (session.closed) return resolve()
+                    const timer = setTimeout(() => reject(new Error('回复 C 握手超时')), 5000)
+                    try {
+                      port.write(Buffer.from([0x43]), (error) => {
+                        clearTimeout(timer)
+                        if (error) reject(error)
+                        else resolve()
+                      })
+                    } catch (error) {
+                      clearTimeout(timer)
+                      reject(error)
+                    }
+                  })
+              )
+              .then(() => {
+                if (session.closed || this.listening !== session) return
+                this.setListenState({
+                  port: request.port,
+                  baudRate: request.baudRate,
+                  status: 'ready',
+                  receivedCount: (this.listenState?.receivedCount ?? 0) + 1
+                })
+              })
+              .catch((error) => {
+                session.writeError = error instanceof Error ? error : new Error(String(error))
+                this.failListening(session, session.writeError)
+              })
+          }
+        }
+        session.onError = (error) => this.failListening(session, error)
+        session.onClose = () => this.failListening(session, new Error('监听串口已断开'))
+        port.on('data', session.onData)
+        port.on('error', session.onError)
+        port.on('close', session.onClose)
+        this.setListenState({
+          port: request.port,
+          baudRate: request.baudRate,
+          status: 'listening',
+          receivedCount: 0
+        })
+      } catch (error) {
+        this.failListening(session, error instanceof Error ? error : new Error(String(error)))
+        throw error
+      } finally {
+        if (session.closed && this.listening !== session) await this.cleanupListening(session)
+      }
+    })()
+    await session.opening
+  }
+
+  async stopListening(): Promise<void> {
+    const session = this.listening
+    if (!session) {
+      this.setListenState(null)
+      await this.listeningCleanup
+      return
+    }
+    session.closed = true
+    this.listening = null
+    this.setListenState(null)
+    await session.opening?.catch(() => {})
+    await this.cleanupListening(session)
+  }
+
+  private async takeListening(request: FirmwareRequest): Promise<{
+    release: () => Promise<void>
+    connection: YmodemConnection
+  }> {
+    const session = this.listening
+    if (
+      !session ||
+      session.closed ||
+      this.listenState?.status !== 'ready' ||
+      session.request.port !== request.port ||
+      session.request.baudRate !== request.baudRate
+    )
+      throw new Error('请先在所选串口完成 C 握手')
+    if (session.onData) session.connection!.port.off('data', session.onData)
+    if (session.onError) session.connection!.port.off('error', session.onError)
+    if (session.onClose) session.connection!.port.off('close', session.onClose)
+    session.closed = true
+    this.listening = null
+    this.setListenState(null)
+    await session.writes
+    if (session.writeError) {
+      await this.cleanupListening(session)
+      throw session.writeError
+    }
+    return { release: session.release!, connection: session.connection! }
   }
 
   private terminateChild(): void {
@@ -302,6 +494,15 @@ export class FirmwareManager {
     if (this.state?.busy || this.auxiliary) throw new Error('已有任务正在运行，请等待完成')
     if (!['detect', 'flash'].includes(operation)) throw new Error('无效的烧录操作')
     validateRequest(request, operation === 'flash')
+    if (request.listenForC) {
+      if (
+        operation !== 'flash' ||
+        this.listenState?.status !== 'ready' ||
+        this.listening?.request.port !== request.port ||
+        this.listening.request.baudRate !== request.baudRate
+      )
+        throw new Error('请先在所选串口完成 C 握手')
+    } else if (this.listening) throw new Error('请先关闭 Ymodem 监听')
     if (request.transport === 'ymodem' && operation !== 'flash')
       throw new Error('Ymodem 接收端不提供通用芯片检测命令')
     this.cancelled = false
@@ -323,9 +524,15 @@ export class FirmwareManager {
   private async execute(request: FirmwareRequest, operation: 'detect' | 'flash'): Promise<void> {
     let release: (() => Promise<void>) | undefined
     let directory: string | undefined
+    let ymodemConnection: YmodemConnection | undefined
     const state = this.state!
     try {
       if (request.transport === 'ymodem') {
+        if (request.listenForC) {
+          const listened = await this.takeListening(request)
+          release = listened.release
+          ymodemConnection = listened.connection
+        }
         const data = await inspectYmodemFirmware(request)
         if (this.cancelled) throw new Error('任务已停止')
         state.totalBytes = data.length
@@ -337,15 +544,17 @@ export class FirmwareManager {
           : 'firmware.bin'
         if (transferName !== selectedName)
           this.log(`Ymodem 文件名使用 ${transferName}（原文件名无法编码为标准 ASCII）`)
-        release = await this.hooks.acquire(request)
-        if (this.cancelled) throw new Error('任务已停止')
-        const connection = await (this.hooks.openYmodem?.(request) ?? this.openYmodem(request))
+        if (!ymodemConnection) {
+          release = await this.hooks.acquire(request)
+          if (this.cancelled) throw new Error('任务已停止')
+          ymodemConnection = await (this.hooks.openYmodem?.(request) ?? this.openYmodem(request))
+        }
         const controller = new AbortController()
         this.abortYmodem = controller
         try {
           if (this.cancelled) controller.abort()
           await sendYmodem(
-            connection.port,
+            ymodemConnection.port,
             transferName,
             data,
             controller.signal,
@@ -357,11 +566,13 @@ export class FirmwareManager {
             (stage) => {
               state.phase = stage
               this.log(stage)
-            }
+            },
+            request.listenForC
           )
         } finally {
           this.abortYmodem = null
-          await connection.close()
+          await ymodemConnection.close()
+          ymodemConnection = undefined
         }
         if (this.cancelled) throw new Error('任务已停止')
         this.log(
@@ -456,6 +667,7 @@ export class FirmwareManager {
         : message
       state.percent = null
     } finally {
+      if (ymodemConnection) await ymodemConnection.close().catch(() => {})
       try {
         await release?.()
       } catch (error) {
@@ -481,6 +693,7 @@ export class FirmwareManager {
   async shutdown(): Promise<void> {
     if (this.state?.busy) this.cancel(this.state.id)
     await this.execution
+    await this.stopListening()
   }
 
   private async openYmodem(

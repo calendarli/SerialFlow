@@ -11,6 +11,7 @@ export type FirmwareRequest = {
   verify: boolean
   reset: boolean
   restorePort: boolean
+  listenForC: boolean
   eraseAll: boolean
   manualBoot: boolean
   connectMode: 'NORMAL' | 'UR'
@@ -32,6 +33,13 @@ export type FirmwareState = {
   restoreWarning?: string
 }
 export type FirmwareTool = { path: string; available: boolean; version: string; error?: string }
+export type FirmwareListenState = {
+  port: string
+  baudRate: number
+  status: 'opening' | 'listening' | 'ready' | 'error'
+  receivedCount: number
+  error?: string
+}
 export const espChips = [
   'auto',
   'esp32',

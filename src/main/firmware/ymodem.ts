@@ -180,18 +180,22 @@ export async function sendYmodem(
   data: Buffer,
   signal: AbortSignal,
   onProgress: (bytes: number) => void,
-  onStage: (stage: string) => void
+  onStage: (stage: string) => void,
+  preconfirmedC = false
 ): Promise<void> {
   const header = ymodemHeader(name, data.length)
   const controls = new Controls(port, signal)
   let finished = false
   try {
-    onStage('等待接收端发出 C 握手')
-    const deadline = Date.now() + 30000
-    while (true) {
-      const byte = await controls.response(Math.max(1, deadline - Date.now()))
-      if (byte === CRC_REQUEST) break
-      if (Date.now() >= deadline) throw new Error('未收到 Ymodem CRC16 握手 C')
+    if (preconfirmedC) onStage('已完成 C 选口握手，发送 Ymodem 文件信息')
+    else {
+      onStage('等待接收端发出 C 握手')
+      const deadline = Date.now() + 30000
+      while (true) {
+        const byte = await controls.response(Math.max(1, deadline - Date.now()))
+        if (byte === CRC_REQUEST) break
+        if (Date.now() >= deadline) throw new Error('未收到 Ymodem CRC16 握手 C')
+      }
     }
     onStage('发送 Ymodem 文件信息')
     await acknowledged(controls, header, '文件信息包')

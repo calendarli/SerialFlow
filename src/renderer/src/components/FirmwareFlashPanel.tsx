@@ -2,6 +2,7 @@ import { memo, useEffect, useRef, useState } from 'react'
 import {
   espChips,
   type FirmwareFamily,
+  type FirmwareListenState,
   type FirmwareRequest,
   type FirmwareState,
   type FirmwareTool
@@ -21,6 +22,7 @@ const defaults: FirmwareRequest = {
   verify: true,
   reset: true,
   restorePort: false,
+  listenForC: false,
   eraseAll: false,
   manualBoot: false,
   connectMode: 'NORMAL',
@@ -51,6 +53,7 @@ function loadSettings(): { request: FirmwareRequest; tools: Record<FirmwareFamil
         verify: saved.transport === 'ymodem' ? false : saved.verify !== false,
         reset: saved.transport === 'ymodem' ? false : saved.reset !== false,
         restorePort: saved.restorePort === true,
+        listenForC: false,
         manualBoot: saved.manualBoot === true,
         connectMode: saved.connectMode === 'UR' ? 'UR' : 'NORMAL',
         toolPath: tools[family]
@@ -80,6 +83,7 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel(): React.JSX.
   const [probes, setProbes] = useState<string[]>([])
   const [tool, setTool] = useState<FirmwareTool | null>(null)
   const [state, setState] = useState<FirmwareState | null>(null)
+  const [listenState, setListenState] = useState<FirmwareListenState | null>(null)
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
   const [advanced, setAdvanced] = useState(false)
@@ -90,6 +94,7 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel(): React.JSX.
   const busy = pending || Boolean(state?.busy)
   const serial = request.transport !== 'swd'
   const ymodem = request.transport === 'ymodem'
+  const listening = Boolean(listenState && listenState.status !== 'error')
   const stm = request.family === 'stm32'
   const patch = (values: Partial<FirmwareRequest>): void =>
     setRequest((current) => ({ ...current, ...values }))
@@ -108,12 +113,40 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel(): React.JSX.
   useEffect(() => {
     let alive = true
     let received = false
+    let receivedListen = false
     const unsubscribePorts = window.api.onPortsChanged(setPorts)
     const unsubscribe = window.api.onFirmwareProgress((next) => {
       received = true
       setState(next)
       if (next.outcome === 'error' || (next.operation === 'detect' && !next.busy)) setShowLogs(true)
     })
+    const unsubscribeListen = window.api.onFirmwareListen((next) => {
+      receivedListen = true
+      setListenState(next)
+      if (!next || next.status === 'error')
+        setRequest((current) => ({ ...current, listenForC: false }))
+      if (next?.status === 'error') setError(next.error || 'Ymodem 监听失败')
+    })
+    void window.api
+      .getFirmwareListenState()
+      .then((next) => {
+        if (!alive || receivedListen) return
+        setListenState(next)
+        if (next && next.status !== 'error')
+          setRequest((current) => ({
+            ...current,
+            family: 'stm32',
+            transport: 'ymodem',
+            port: next.port,
+            baudRate: next.baudRate,
+            verify: false,
+            reset: false,
+            listenForC: true
+          }))
+      })
+      .catch((cause) => {
+        if (alive) setError(errorText(cause))
+      })
     void window.api
       .getFirmwareState()
       .then((next) => {
@@ -133,6 +166,7 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel(): React.JSX.
     return () => {
       alive = false
       unsubscribe()
+      unsubscribeListen()
       unsubscribePorts()
     }
   }, [])
@@ -223,6 +257,16 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel(): React.JSX.
         setShowLogs(operation === 'detect')
       }
     })
+  const toggleListen = (enabled: boolean): Promise<void> =>
+    perform(async () => {
+      if (enabled) {
+        await window.api.startFirmwareListen({ ...request, listenForC: true })
+        patch({ listenForC: true })
+      } else {
+        await window.api.stopFirmwareListen()
+        patch({ listenForC: false })
+      }
+    })
   const targetReady = serial
     ? ports.some((port) => port.path === request.port)
     : Boolean(request.probe)
@@ -241,8 +285,24 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel(): React.JSX.
     (state?.totalBytes !== undefined && state.transferredBytes !== undefined
       ? Math.floor((state.transferredBytes * 100) / state.totalBytes)
       : null)
-  const statusTone = error ? 'error' : state?.busy ? 'active' : state?.outcome || 'idle'
-  const statusLabel = error || state?.phase || '就绪：选择设备与固件后开始烧录'
+  const statusTone = error
+    ? 'error'
+    : listening
+      ? listenState?.status === 'ready'
+        ? 'success'
+        : 'active'
+      : state?.busy
+        ? 'active'
+        : state?.outcome || 'idle'
+  const statusLabel =
+    error ||
+    (listening
+      ? listenState?.status === 'ready'
+        ? `已收到并回复 0x43（${listenState.receivedCount} 次），可以开始烧录`
+        : listenState?.status === 'opening'
+          ? '正在打开 Ymodem 监听串口…'
+          : '正在监听设备发来的 0x43…'
+      : state?.phase || '就绪：选择设备与固件后开始烧录')
   const statusIcon =
     statusTone === 'success'
       ? '✓'
@@ -261,6 +321,7 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel(): React.JSX.
               芯片
               <select
                 aria-label="芯片系列"
+                disabled={listening}
                 value={request.family}
                 onChange={(e) => changeFamily(e.target.value as FirmwareFamily)}
               >
@@ -272,6 +333,7 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel(): React.JSX.
               方式
               <select
                 aria-label="烧录方式"
+                disabled={listening}
                 value={request.transport}
                 onChange={(e) => {
                   const transport = e.target.value as FirmwareRequest['transport']
@@ -294,6 +356,7 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel(): React.JSX.
                 端口
                 <select
                   aria-label="烧录串口"
+                  disabled={listening}
                   value={request.port}
                   onChange={(e) => patch({ port: e.target.value })}
                 >
@@ -403,6 +466,7 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel(): React.JSX.
                     波特率
                     <input
                       aria-label="烧录波特率"
+                      disabled={listening}
                       type="number"
                       min="1200"
                       max="3000000"
@@ -473,20 +537,30 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel(): React.JSX.
             </div>
           )}
           <div className="firmware-row firmware-options">
-            {ymodem ? (
-              <span>接收端按 Ymodem CRC16 确认数据；Flash 校验由设备升级程序负责</span>
-            ) : stm ? (
-              <label>
+            {ymodem && (
+              <label title="勾选后占用所选串口，持续等待设备发来 0x43；每次收到都回复 0x43。握手完成后再点击开始烧录。">
                 <input
                   type="checkbox"
-                  checked={request.verify}
-                  onChange={(e) => patch({ verify: e.target.checked })}
+                  checked={request.listenForC}
+                  disabled={!targetReady && !request.listenForC}
+                  onChange={(e) => void toggleListen(e.target.checked)}
                 />
-                烧录后校验
+                监听 C 选口握手
               </label>
-            ) : (
-              <span>✓ 自动校验写入数据</span>
             )}
+            {!ymodem &&
+              (stm ? (
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={request.verify}
+                    onChange={(e) => patch({ verify: e.target.checked })}
+                  />
+                  烧录后校验
+                </label>
+              ) : (
+                <span>✓ 自动校验写入数据</span>
+              ))}
             {(!stm || !serial) && (
               <label>
                 <input
@@ -502,6 +576,7 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel(): React.JSX.
                 <input
                   type="checkbox"
                   checked={request.restorePort}
+                  disabled={listening}
                   onChange={(e) => patch({ restorePort: e.target.checked })}
                 />
                 结束后恢复原串口连接
@@ -543,13 +618,13 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel(): React.JSX.
             <span className="firmware-status-title" title={statusLabel}>
               {statusLabel}
             </span>
-            {!error && state?.operation === 'flash' && (
+            {!error && !listening && state?.operation === 'flash' && (
               <strong className="firmware-status-percent">
                 {progressPercent === null ? '进行中' : `${progressPercent}%`}
               </strong>
             )}
           </div>
-          {!error && state?.operation === 'flash' && (
+          {!error && !listening && state?.operation === 'flash' && (
             <div
               className={`firmware-progress-track ${progressPercent === null && state.busy ? 'is-indeterminate' : ''}`}
               role="progressbar"
@@ -564,7 +639,12 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel(): React.JSX.
               />
             </div>
           )}
-          {!error && state && (
+          {!error && listening && listenState && (
+            <div className="firmware-status-meta">
+              {listenState.port} · {listenState.baudRate} baud · 等待点击开始烧录
+            </div>
+          )}
+          {!error && !listening && state && (
             <div className="firmware-status-meta">
               {state.totalBytes !== undefined && state.transferredBytes !== undefined && (
                 <span>
@@ -574,7 +654,9 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel(): React.JSX.
               <span>用时 {elapsed} 秒</span>
             </div>
           )}
-          {state?.restoreWarning && <span className="firmware-error">{state.restoreWarning}</span>}
+          {!listening && state?.restoreWarning && (
+            <span className="firmware-error">{state.restoreWarning}</span>
+          )}
         </div>
         <div className="firmware-actions">
           <button onClick={() => setShowLogs(!showLogs)} aria-expanded={showLogs}>
@@ -613,7 +695,13 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel(): React.JSX.
               )}
               <button
                 className="send-button"
-                disabled={busy || !targetReady || !filesReady || (!ymodem && !tool?.available)}
+                disabled={
+                  busy ||
+                  !targetReady ||
+                  !filesReady ||
+                  (ymodem && request.listenForC && listenState?.status !== 'ready') ||
+                  (!ymodem && !tool?.available)
+                }
                 onClick={() => void start('flash')}
               >
                 开始烧录

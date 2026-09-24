@@ -378,6 +378,7 @@ function registerSerialHandlers(): void {
     resources: app.isPackaged ? process.resourcesPath : join(app.getAppPath(), 'resources'),
     temp: app.getPath('temp'),
     emit: (state) => emit('firmware:progress', state),
+    emitListen: (state) => emit('firmware:listen', state),
     acquire: (request) =>
       enqueuePortOperation(async () => {
         if (request.transport === 'swd') return async () => {}
@@ -410,6 +411,11 @@ function registerSerialHandlers(): void {
       })
   })
   ipcMain.handle('firmware:state', () => firmwareManager!.snapshot())
+  ipcMain.handle('firmware:listenState', () => firmwareManager!.listenSnapshot())
+  ipcMain.handle('firmware:listenStart', (_event, request: FirmwareRequest) =>
+    firmwareManager!.startListening(request)
+  )
+  ipcMain.handle('firmware:listenStop', () => firmwareManager!.stopListening())
   ipcMain.handle('firmware:tool', (_event, family: FirmwareFamily, path: string) =>
     firmwareManager!.toolInfo(family, path)
   )

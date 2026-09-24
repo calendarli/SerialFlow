@@ -1,6 +1,11 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type { PlotMeasurement, PlotMeasurementCommand } from '@common/plot-measurement'
-import type { FirmwareFamily, FirmwareRequest, FirmwareState } from '@common/firmware'
+import type {
+  FirmwareFamily,
+  FirmwareListenState,
+  FirmwareRequest,
+  FirmwareState
+} from '@common/firmware'
 import type { UpdateState } from '@common/update'
 import type { SerialPortInfo } from '@common/serial-port'
 
@@ -46,6 +51,16 @@ const api = {
     return () => ipcRenderer.removeListener('update:state', listener)
   },
   getFirmwareState: () => ipcRenderer.invoke('firmware:state'),
+  getFirmwareListenState: () => ipcRenderer.invoke('firmware:listenState'),
+  startFirmwareListen: (request: FirmwareRequest) =>
+    ipcRenderer.invoke('firmware:listenStart', request),
+  stopFirmwareListen: () => ipcRenderer.invoke('firmware:listenStop'),
+  onFirmwareListen: (callback: (state: FirmwareListenState | null) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, state: FirmwareListenState | null): void =>
+      callback(state)
+    ipcRenderer.on('firmware:listen', listener)
+    return () => ipcRenderer.removeListener('firmware:listen', listener)
+  },
   getFirmwareTool: (family: FirmwareFamily, path: string) =>
     ipcRenderer.invoke('firmware:tool', family, path),
   listFirmwareProbes: (path: string) => ipcRenderer.invoke('firmware:probes', path),
