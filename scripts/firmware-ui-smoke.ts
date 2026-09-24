@@ -105,7 +105,12 @@ BrowserWindow.prototype.show = function () {
 }
 const fixture = path.join(profile, 'application.bin')
 fs.writeFileSync(fixture, Buffer.from([1, 2, 3, 4]))
-dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [fixture] })
+const firmwareDialogPaths: Array<string | undefined> = []
+dialog.showOpenDialog = async (...args) => {
+  const options = args.at(-1) as { title?: string; defaultPath?: string }
+  if (options.title === '选择烧录固件') firmwareDialogPaths.push(options.defaultPath)
+  return { canceled: false, filePaths: [fixture] }
+}
 const errors: string[] = []
 app.on('web-contents-created', (_event, contents) => {
   contents.setBackgroundThrottling(false)
@@ -152,6 +157,7 @@ app.whenReady().then(async () => {
     )
     await until(() => run(`document.querySelectorAll('.firmware-file').length === 1`))
     assert(await run(`!document.querySelector('[aria-label$="写入地址"]')`))
+    assert.equal(firmwareDialogPaths[0], undefined)
     await run(
       `(() => { const s = document.querySelector('[aria-label="芯片系列"]'); s.value = 'esp32'; s.dispatchEvent(new Event('change', {bubbles:true})); })()`
     )
@@ -162,6 +168,7 @@ app.whenReady().then(async () => {
       `Array.from(document.querySelectorAll('.firmware-panel button')).find(b => b.textContent === '添加 BIN').click()`
     )
     await until(() => run(`document.querySelectorAll('.firmware-file').length === 1`))
+    assert.equal(firmwareDialogPaths[1], path.dirname(fixture))
     assert(
       await run(
         `Array.from(document.querySelectorAll('.firmware-panel button')).find(b => b.textContent === '开始烧录').disabled`
@@ -222,6 +229,9 @@ app.whenReady().then(async () => {
     }
     await run(`window.api.startFirmware(${JSON.stringify(request)}, 'flash')`)
     await until(() => Boolean(finishFirmware))
+    await until(() =>
+      run(`Boolean(document.querySelector('.firmware-progress-track.is-indeterminate'))`)
+    )
     assert.deepEqual(await run(`window.api.getOpenedPortPaths()`), [])
     const deniedOpen = await run(
       `window.api.openPort(${JSON.stringify(serialOptions)}).then(() => '', e => e.message)`
@@ -235,8 +245,19 @@ app.whenReady().then(async () => {
     await until(() => run(`window.api.getFirmwareState().then(s => !s.busy)`))
     assert.equal(await run(`window.api.getFirmwareState().then(s => s.outcome)`), 'success')
     assert.deepEqual(await run(`window.api.getOpenedPortPaths()`), ['COM991'])
+    await until(() =>
+      run(
+        `document.querySelector('.firmware-status-success .firmware-progress-fill')?.style.width === '100%'`
+      )
+    )
     assert.equal(openedOptions.at(-1)!.baudRate, 57600, 'original serial settings must be restored')
     await run(`window.api.closePort('COM991')`)
+    await run(
+      `(() => { const s = document.querySelector('[aria-label="芯片系列"]'); s.value = 'stm32'; s.dispatchEvent(new Event('change', {bubbles:true})); })()`
+    )
+    await run(
+      `(() => { const s = document.querySelector('[aria-label="烧录方式"]'); s.value = 'ymodem'; s.dispatchEvent(new Event('change', {bubbles:true})); })()`
+    )
     FakeSerialPort.ymodemMode = true
     await run(`window.api.openPort(${JSON.stringify(serialOptions)})`)
     const ymodemRequest = {
@@ -251,6 +272,25 @@ app.whenReady().then(async () => {
     await until(() => run(`window.api.getFirmwareState().then(s => !s.busy)`))
     assert.equal(await run(`window.api.getFirmwareState().then(s => s.outcome)`), 'success')
     assert.deepEqual(await run(`window.api.getOpenedPortPaths()`), ['COM991'])
+    await until(() =>
+      run(`document.querySelector('.firmware-status-meta')?.textContent.includes('4 B / 4 B')`)
+    )
+    assert(
+      await run(
+        `document.querySelector('.firmware-status-success .firmware-progress-fill')?.style.width === '100%'`
+      )
+    )
+    await until(() =>
+      run(
+        `(() => { const track = document.querySelector('.firmware-progress-track'); const fill = track?.querySelector('.firmware-progress-fill'); return track && fill && !track.classList.contains('is-indeterminate') && fill.getBoundingClientRect().width >= track.getBoundingClientRect().width * 0.99; })()`
+      )
+    )
+    window.setContentSize(1280, 750)
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    fs.writeFileSync(
+      path.join(root, '.tmp', 'ui-smoke', 'firmware-ymodem-complete.png'),
+      (await window.webContents.capturePage(undefined, { stayHidden: true })).toPNG()
+    )
     await run(`window.api.closePort('COM991')`)
     FakeSerialPort.ymodemMode = false
     for (const page of ['help', 'programming-manual']) {

@@ -23,6 +23,8 @@ export type FirmwareState = {
   port: string
   phase: string
   percent: number | null
+  totalBytes?: number
+  transferredBytes?: number
   startedAt: number
   finishedAt?: number
   outcome?: 'success' | 'error' | 'cancelled'

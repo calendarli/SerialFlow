@@ -174,7 +174,7 @@ test('a lone peer CAN is an invalid cancel sequence, not a retry request', async
     write(data: Buffer, callback: (error?: Error | null) => void) {
       this.writes.push(Buffer.from(data))
       callback()
-      if (this.writes.length === 1) queueMicrotask(() => this.emit('data', Buffer.from([CAN])))
+      if (this.writes.length === 1) queueMicrotask(() => port.emit('data', Buffer.from([CAN])))
     }
   })
   setTimeout(() => port.emit('data', Buffer.from([C])), 0)

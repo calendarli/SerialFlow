@@ -241,6 +241,8 @@ test('Ymodem firmware task owns and restores the serial port without CubeProgram
     await until(() => !manager.snapshot()!.busy)
     assert.equal(manager.snapshot()!.outcome, 'success')
     assert.equal(manager.snapshot()!.percent, 100)
+    assert.equal(manager.snapshot()!.transferredBytes, 129)
+    assert.equal(manager.snapshot()!.totalBytes, 129)
     assert.equal(released, 1)
     assert.equal(closed, 1)
   } finally {

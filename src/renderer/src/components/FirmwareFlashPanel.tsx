@@ -65,6 +65,12 @@ const errorText = (error: unknown): string =>
     /^Error invoking remote method '[^']+': (?:Error: )?/,
     ''
   )
+const formatBytes = (bytes: number): string =>
+  bytes < 1024
+    ? `${bytes} B`
+    : bytes < 1024 * 1024
+      ? `${(bytes / 1024).toFixed(1)} KB`
+      : `${(bytes / 1024 / 1024).toFixed(1)} MB`
 
 export const FirmwareFlashPanel = memo(function FirmwareFlashPanel(): React.JSX.Element {
   const [initial] = useState(loadSettings)
@@ -230,6 +236,21 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel(): React.JSX.
   const elapsed = state
     ? Math.max(0, Math.round(((state.finishedAt || now) - state.startedAt) / 1000))
     : 0
+  const progressPercent =
+    state?.percent ??
+    (state?.totalBytes !== undefined && state.transferredBytes !== undefined
+      ? Math.floor((state.transferredBytes * 100) / state.totalBytes)
+      : null)
+  const statusTone = error ? 'error' : state?.busy ? 'active' : state?.outcome || 'idle'
+  const statusLabel = error || state?.phase || '就绪：选择设备与固件后开始烧录'
+  const statusIcon =
+    statusTone === 'success'
+      ? '✓'
+      : statusTone === 'error'
+        ? '!'
+        : statusTone === 'cancelled'
+          ? '×'
+          : '•'
 
   return (
     <section className="firmware-panel" aria-label="固件烧录">
@@ -514,15 +535,46 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel(): React.JSX.
         )}
       </div>
       <div className="firmware-footer">
-        <div className="firmware-status" role="status">
-          <span className={error || state?.outcome === 'error' ? 'firmware-error' : ''}>
-            {error || state?.phase || '就绪：选择设备与固件后开始烧录'}
-            {state && ` · ${elapsed}s`}
-          </span>
-          {state?.restoreWarning && <span className="firmware-error">{state.restoreWarning}</span>}
-          {state?.busy && (
-            <progress aria-label="当前烧录阶段进度" max="100" value={state.percent ?? undefined} />
+        <div className={`firmware-status firmware-status-${statusTone}`} role="status">
+          <div className="firmware-status-heading">
+            <span className="firmware-status-icon" aria-hidden="true">
+              {statusIcon}
+            </span>
+            <span className="firmware-status-title" title={statusLabel}>
+              {statusLabel}
+            </span>
+            {!error && state?.operation === 'flash' && (
+              <strong className="firmware-status-percent">
+                {progressPercent === null ? '进行中' : `${progressPercent}%`}
+              </strong>
+            )}
+          </div>
+          {!error && state?.operation === 'flash' && (
+            <div
+              className={`firmware-progress-track ${progressPercent === null && state.busy ? 'is-indeterminate' : ''}`}
+              role="progressbar"
+              aria-label="固件传输进度"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={progressPercent ?? undefined}
+            >
+              <span
+                className="firmware-progress-fill"
+                style={{ width: `${progressPercent ?? 0}%` }}
+              />
+            </div>
           )}
+          {!error && state && (
+            <div className="firmware-status-meta">
+              {state.totalBytes !== undefined && state.transferredBytes !== undefined && (
+                <span>
+                  {formatBytes(state.transferredBytes)} / {formatBytes(state.totalBytes)}
+                </span>
+              )}
+              <span>用时 {elapsed} 秒</span>
+            </div>
+          )}
+          {state?.restoreWarning && <span className="firmware-error">{state.restoreWarning}</span>}
         </div>
         <div className="firmware-actions">
           <button onClick={() => setShowLogs(!showLogs)} aria-expanded={showLogs}>

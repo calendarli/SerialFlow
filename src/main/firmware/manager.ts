@@ -328,6 +328,8 @@ export class FirmwareManager {
       if (request.transport === 'ymodem') {
         const data = await inspectYmodemFirmware(request)
         if (this.cancelled) throw new Error('任务已停止')
+        state.totalBytes = data.length
+        state.transferredBytes = 0
         this.log(`${request.files[0].name}：${data.length} 字节；由设备 Ymodem 接收端决定写入地址`)
         const selectedName = basename(request.files[0].path)
         const transferName = /^[\x20-\x7e]{1,64}$/.test(selectedName)
@@ -348,6 +350,7 @@ export class FirmwareManager {
             data,
             controller.signal,
             (bytes) => {
+              state.transferredBytes = bytes
               state.percent = Math.floor((bytes * 100) / data.length)
               this.publish()
             },

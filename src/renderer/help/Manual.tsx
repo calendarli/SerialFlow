@@ -341,9 +341,10 @@ export default function Manual(): React.JSX.Element {
               STM32_Programmer_CLI.exe。Ymodem 模式不需要此工具。
             </p>
             <p>
-              先刷新并选择串口或探针，普通 UART / SWD 可使用“检测芯片”查看日志，再“开始烧录”。STM32
-              系统 UART 需要按芯片手册设置 BOOT 并复位，烧录后恢复 BOOT 配置并手动复位。ESP32
-              无自动下载电路时，选择手动模式并操作 BOOT/RESET。
+              先刷新并选择串口或探针，普通 UART / SWD
+              可使用“检测芯片”查看日志，再“开始烧录”。选择固件时会记住上次使用的目录。底部状态区显示阶段、百分比和耗时，Ymodem
+              还显示已确认的数据量。STM32 系统 UART 需要按芯片手册设置 BOOT 并复位，烧录后恢复 BOOT
+              配置并手动复位。ESP32 无自动下载电路时，选择手动模式并操作 BOOT/RESET。
             </p>
             <p>
               STM32 Ymodem 的写入地址、擦除、Flash 校验与复位由设备自带 Bootloader

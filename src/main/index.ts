@@ -4,7 +4,7 @@ import { app, shell, BrowserWindow, dialog, ipcMain } from 'electron'
 import { execFile } from 'child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { readFile, stat, writeFile } from 'fs/promises'
-import { basename, join } from 'path'
+import { basename, dirname, join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { SerialPort } from 'serialport'
 import icon from '../../resources/icon-v3.png?asset'
@@ -39,7 +39,7 @@ mkdirSync(userDataPath, { recursive: true })
 app.setPath('userData', userDataPath)
 
 const configDialogStatePath = join(userDataPath, 'config-dialog-state.json')
-type ConfigDialogState = { lastDirectory?: string }
+type ConfigDialogState = { lastDirectory?: string; firmwareDirectory?: string }
 function readConfigDialogState(): ConfigDialogState {
   try {
     const value = JSON.parse(readFileSync(configDialogStatePath, 'utf8')) as ConfigDialogState
@@ -52,11 +52,23 @@ function rememberConfigDirectory(filePath: string): void {
   try {
     writeFileSync(
       configDialogStatePath,
-      JSON.stringify({ lastDirectory: join(filePath, '..') }),
+      JSON.stringify({ ...readConfigDialogState(), lastDirectory: dirname(filePath) }),
       'utf8'
     )
   } catch {
     // A dialog path is a convenience; failure to persist it must not block I/O.
+  }
+}
+
+function rememberFirmwareDirectory(filePath: string): void {
+  try {
+    writeFileSync(
+      configDialogStatePath,
+      JSON.stringify({ ...readConfigDialogState(), firmwareDirectory: dirname(filePath) }),
+      'utf8'
+    )
+  } catch {
+    // A remembered folder is optional; the selected firmware remains usable.
   }
 }
 
@@ -420,8 +432,13 @@ function registerSerialHandlers(): void {
         (transport === 'ymodem' && family !== 'stm32')
       )
         throw new Error('无效的烧录方式')
+      const savedDirectory = readConfigDialogState().firmwareDirectory
       const result = await dialog.showOpenDialog({
         title: '选择烧录固件',
+        defaultPath:
+          typeof savedDirectory === 'string' && existsSync(savedDirectory)
+            ? savedDirectory
+            : undefined,
         properties: family === 'esp32' ? ['openFile', 'multiSelections'] : ['openFile'],
         filters: [
           {
@@ -431,6 +448,7 @@ function registerSerialHandlers(): void {
         ]
       })
       if (result.canceled) return []
+      if (result.filePaths[0]) rememberFirmwareDirectory(result.filePaths[0])
       return Promise.all(
         result.filePaths.map(async (path) => ({
           path,
