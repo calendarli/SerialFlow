@@ -1,5 +1,22 @@
 import type { DisplayEncoding } from './interaction-settings'
 
+export function isReadableFirmwareTraffic(hex: string, encoding: DisplayEncoding): boolean {
+  if (!hex || hex.length % 2) return false
+  const bytes = Uint8Array.from(hex.match(/.{2}/g) ?? [], (pair) => Number.parseInt(pair, 16))
+  try {
+    const decoded = new TextDecoder(encoding, { fatal: true }).decode(bytes)
+    return (
+      !!decoded &&
+      [...decoded].every((character) => {
+        const code = character.codePointAt(0)!
+      return code >= 0x20 && (code < 0x7f || code > 0x9f) && code !== 0xfffd
+      })
+    )
+  } catch {
+    return false
+  }
+}
+
 export function formatFirmwareTraffic(
   hex: string,
   hexMode: boolean,

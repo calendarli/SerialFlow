@@ -2,10 +2,10 @@ import { ClearActionIcon } from './ClearActionIcon'
 import { InteractionSettings } from './InteractionSettings'
 import type { InteractionDisplay } from '../interaction-settings'
 import { Clock3, Pause, ChevronDown, ChevronRight } from 'lucide-react'
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { InteractionEntry } from '../types'
-import { formatFirmwareTraffic } from '../firmware-traffic-display'
+import { formatFirmwareTraffic, isReadableFirmwareTraffic } from '../firmware-traffic-display'
 
 type SearchDirection = 'up' | 'down' | null
 type ContextMenu = { x: number; y: number; entry: InteractionEntry | null }
@@ -77,6 +77,18 @@ export function ReceivePanel(props: Props): React.JSX.Element {
         : entry.text,
     [props.rxHex, props.display.encoding]
   )
+  const visibleEntries = useMemo(
+    () =>
+      props.rxHex
+        ? props.entries
+        : props.entries.filter(
+            (entry) =>
+              entry.kind !== 'firmware-wire' ||
+              !entry.rawHex ||
+              isReadableFirmwareTraffic(entry.rawHex, props.display.encoding)
+          ),
+    [props.entries, props.rxHex, props.display.encoding]
+  )
   const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null)
   const [menu, setMenu] = useState<ContextMenu | null>(null)
   const [autoPauseExpanded, setAutoPauseExpanded] = useState(
@@ -91,31 +103,31 @@ export function ReceivePanel(props: Props): React.JSX.Element {
   const followTailRef = useRef(true)
   // Keep callbacks stable during scroll/menu updates: a new getItemKey causes
   // the virtualizer to rebuild measurements for the entire retained history.
-  const getItemKey = useCallback((index: number) => props.entries[index].id, [props.entries])
+  const getItemKey = useCallback((index: number) => visibleEntries[index].id, [visibleEntries])
   const getScrollElement = useCallback(() => scrollElement, [scrollElement])
   const estimateSize = useCallback(
     (index: number) =>
       Math.max(
         20,
-        Math.ceil((props.display[props.entries[index].direction].size ?? props.fontSize) * 1.55)
+        Math.ceil((props.display[visibleEntries[index].direction].size ?? props.fontSize) * 1.55)
       ),
-    [props.entries, props.display, props.fontSize]
+    [visibleEntries, props.display, props.fontSize]
   )
   const virtualizer = useVirtualizer({
-    count: props.entries.length,
+    count: visibleEntries.length,
     getScrollElement,
     getItemKey,
     estimateSize,
     overscan: 14
   })
-  const lastEntryId = props.entries[props.entries.length - 1]?.id
+  const lastEntryId = visibleEntries[visibleEntries.length - 1]?.id
 
   useEffect(() => virtualizer.measure(), [props.fontSize, props.display, props.rxHex, virtualizer])
 
   useLayoutEffect(() => {
-    if (!scrollElement || !props.entries.length || !followTailRef.current) return
+    if (!scrollElement || !visibleEntries.length || !followTailRef.current) return
     scrollElement.scrollTop = scrollElement.scrollHeight
-  }, [lastEntryId, props.entries.length, scrollElement])
+  }, [lastEntryId, visibleEntries.length, scrollElement])
 
   useEffect(() => {
     const closeMenu = (): void => setMenu(null)
@@ -178,7 +190,7 @@ export function ReceivePanel(props: Props): React.JSX.Element {
         error instanceof Error ? `正则错误：${error.message}` : '正则表达式错误'
       )
     }
-    const matches = props.entries
+    const matches = visibleEntries
       .map((entry, index) => (matcher.test(entryText(entry)) ? index : -1))
       .filter((index) => index >= 0)
     if (!matches.length) {
@@ -186,17 +198,19 @@ export function ReceivePanel(props: Props): React.JSX.Element {
       return setSearchMessage('未找到匹配内容')
     }
     const currentIndex =
-      matchedEntryId === null ? -1 : props.entries.findIndex((entry) => entry.id === matchedEntryId)
+      matchedEntryId === null
+        ? -1
+        : visibleEntries.findIndex((entry) => entry.id === matchedEntryId)
     let next: number | undefined
     if (direction === 'up')
       next = [...matches]
         .reverse()
-        .find((index) => index < (currentIndex < 0 ? props.entries.length : currentIndex))
+        .find((index) => index < (currentIndex < 0 ? visibleEntries.length : currentIndex))
     else if (direction === 'down') next = matches.find((index) => index > currentIndex)
     else next = matches.find((index) => index > currentIndex) ?? matches[0]
     if (next === undefined)
       return setSearchMessage(direction === 'up' ? '已到达顶部' : '已到达底部')
-    const entry = props.entries[next]
+    const entry = visibleEntries[next]
     setMatchedEntryId(entry.id)
     setSearchMessage(`${matches.indexOf(next) + 1} / ${matches.length}`)
     virtualizer.scrollToIndex(next, { align: 'center' })
@@ -436,10 +450,10 @@ export function ReceivePanel(props: Props): React.JSX.Element {
           } as React.CSSProperties
         }
       >
-        {props.entries.length ? (
+        {visibleEntries.length ? (
           <div className="interaction-virtual-space" style={{ height: virtualizer.getTotalSize() }}>
             {virtualizer.getVirtualItems().map((item) => {
-              const entry = props.entries[item.index]
+              const entry = visibleEntries[item.index]
               return (
                 <div
                   className="interaction-virtual-row"
