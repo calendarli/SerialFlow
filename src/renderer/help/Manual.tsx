@@ -329,6 +329,10 @@ export default function Manual(): React.JSX.Element {
             </p>
             <h3>固件烧录</h3>
             <p>
+              烧录过程中的工具输出和通讯日志也会同步显示在“数据交互”区，标记为“烧录日志”；这些日志不计入普通串口
+              RX/TX 次数，也不会绘制到曲线。
+            </p>
+            <p>
               切换到底部“固件烧录”页签，选择 STM32 或 ESP32。STM32 支持芯片内置 Bootloader 的
               UART、设备 Bootloader 的 Ymodem、ST-LINK / SWD。Ymodem 只发送 BIN，需要先让设备进入
               Ymodem 接收状态；它使用接收端 C 握手、CRC16、逐包确认、重传与结束空包，不调用

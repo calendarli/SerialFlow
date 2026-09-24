@@ -30,6 +30,7 @@ export type FirmwareState = {
   finishedAt?: number
   outcome?: 'success' | 'error' | 'cancelled'
   logs: string[]
+  logCount: number
   restoreWarning?: string
 }
 export type FirmwareTool = { path: string; available: boolean; version: string; error?: string }

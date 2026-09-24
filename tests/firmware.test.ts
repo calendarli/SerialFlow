@@ -501,6 +501,7 @@ test('task success, failures, cancellation, duplicate starts and restoration rel
       }
       await until(() => !h.manager.snapshot()!.busy)
       const state = h.manager.snapshot()!
+      assert.equal(state.logCount, state.logs.length)
       assert.equal(
         state.outcome,
         behavior === 'hang'
