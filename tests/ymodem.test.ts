@@ -65,7 +65,7 @@ class Receiver extends EventEmitter {
       assert(data.subarray(3, 131).every((value) => value === 0))
       this.phase = 'done'
       if (this.versionBeforeFinalAck) {
-        this.reply(...Buffer.from('boot=0.1.0-dev.1;app=0.1.2-dev.1;', 'ascii'))
+        this.reply(...Buffer.from('boot=0.1.0-dev.1;app=0.1.2-dev.1', 'ascii'))
         this.reply(ACK)
       } else this.reply(ACK)
     } else assert.fail('unexpected packet after final ACK')

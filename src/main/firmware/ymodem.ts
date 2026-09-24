@@ -179,13 +179,16 @@ async function acknowledged(
     }
     if (allowVersionReport && answer === 'b'.charCodeAt(0)) {
       const report: number[] = [answer]
-      while (report.length < 96 && report.filter((byte) => byte === 0x3b).length < 2) {
-        report.push(await controls.read())
+      // 此设备先回版本文本，再回最终 ACK；ACK 是文本边界，不要求尾部分号。
+      while (report.length < 96) {
+        answer = await controls.response()
+        if (answer === ACK) break
+        if (answer < 0x20 || answer > 0x7e) throw new Error('结束空包：版本信息格式无效')
+        report.push(answer)
       }
       const message = Buffer.from(report).toString('ascii')
-      if (!/^boot=[\x20-\x7e]*;app=[\x20-\x7e]*;$/.test(message))
+      if (answer !== ACK || !/^boot=[^;]+;app=[^;]+$/.test(message))
         throw new Error('结束空包：版本信息格式无效')
-      answer = await controls.response()
     }
     if (answer === ACK) return
     // STM32 IAP receivers can request a CRC16 packet again with C after a bad packet.
