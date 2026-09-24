@@ -89,7 +89,7 @@ function process(data, context) {
 
 ### 固件烧录
 
-底部“固件烧录”页签支持 STM32 的 UART / ST-LINK HEX、BIN 烧录，以及 ESP32 的单个或多个 BIN 烧录。STM32 需单独安装 STM32CubeProgrammer；ESP32 使用随包提供或手动指定的 esptool。
+底部“固件烧录”页签支持 STM32 的系统 UART、Ymodem 和 ST-LINK / SWD，以及 ESP32 的单个或多个 BIN 烧录。STM32 系统 UART / ST-LINK 需单独安装 STM32CubeProgrammer；Ymodem 使用设备自带 Bootloader；ESP32 使用随包提供或手动指定的 esptool。
 
 烧录期间独占目标串口。工具准备、地址配置、串口恢复及硬件支持边界见 [固件烧录说明](docs/firmware-flashing.md)。
 

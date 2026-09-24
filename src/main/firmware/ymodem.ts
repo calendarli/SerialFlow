@@ -118,7 +118,14 @@ class Controls {
   async response(timeout = RESPONSE_TIMEOUT): Promise<number> {
     const byte = await this.read(timeout)
     if (byte === CAN) {
-      if ((await this.read(1000)) === CAN) throw new Error('Ymodem 接收端已取消传输')
+      let next: number
+      try {
+        next = await this.read(1000)
+      } catch (error) {
+        if (!(error instanceof Error) || !error.message.includes('超时')) throw error
+        throw new Error('Ymodem 接收端返回了不完整取消序列')
+      }
+      if (next === CAN) throw new Error('Ymodem 接收端已取消传输')
       throw new Error('Ymodem 接收端返回了无效取消序列')
     }
     return byte

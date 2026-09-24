@@ -167,3 +167,28 @@ test('Ymodem sender cancellation interrupts a pending handshake', async () => {
   await assert.rejects(task, /停止/)
   assert.deepEqual(port.writes, [Buffer.from([CAN, CAN])])
 })
+
+test('a lone peer CAN is an invalid cancel sequence, not a retry request', async () => {
+  const port = Object.assign(new EventEmitter(), {
+    writes: [] as Buffer[],
+    write(data: Buffer, callback: (error?: Error | null) => void) {
+      this.writes.push(Buffer.from(data))
+      callback()
+      if (this.writes.length === 1) queueMicrotask(() => this.emit('data', Buffer.from([CAN])))
+    }
+  })
+  setTimeout(() => port.emit('data', Buffer.from([C])), 0)
+  await assert.rejects(
+    sendYmodem(
+      port,
+      'firmware.bin',
+      Buffer.from([1]),
+      new AbortController().signal,
+      () => {},
+      () => {}
+    ),
+    /不完整取消序列/
+  )
+  assert.equal(port.writes.length, 2, 'only the header and sender cancellation may be written')
+  assert.deepEqual(port.writes[1], Buffer.from([CAN, CAN]))
+})
