@@ -9,6 +9,7 @@ import type {
   FirmwareListenState,
   FirmwareRequest,
   FirmwareState,
+  FirmwareTraffic,
   FirmwareTool
 } from '@common/firmware'
 import { hexAddress, inspectFirmware, inspectYmodemFirmware, validateRequest } from './validation'
@@ -37,6 +38,7 @@ type Hooks = {
   temp: string
   emit: (state: FirmwareState) => void
   emitListen?: (state: FirmwareListenState | null) => void
+  emitTraffic?: (traffic: FirmwareTraffic) => void
   acquire: (request: FirmwareRequest) => Promise<() => Promise<void>>
   openYmodem?: (
     request: FirmwareRequest
@@ -123,6 +125,16 @@ export class FirmwareManager {
     this.hooks.emitListen?.(this.listenSnapshot())
   }
 
+  private traffic(direction: 'rx' | 'tx', port: string, data: Buffer): void {
+    if (data.length)
+      this.hooks.emitTraffic?.({
+        direction,
+        port,
+        hex: data.toString('hex').toUpperCase(),
+        bytes: data.length
+      })
+  }
+
   private cleanupListening(session: ListeningSession): Promise<void> {
     session.cleanup ??= (async () => {
       if (session.connection) {
@@ -185,6 +197,7 @@ export class FirmwareManager {
         const port = session.connection.port
         session.onData = (chunk) => {
           if (session.closed) return
+          this.traffic('rx', request.port, chunk)
           for (const byte of chunk) {
             if (byte !== 0x43) continue
             session.writes = session.writes
@@ -197,7 +210,10 @@ export class FirmwareManager {
                       port.write(Buffer.from([0x43]), (error) => {
                         clearTimeout(timer)
                         if (error) reject(error)
-                        else resolve()
+                        else {
+                          this.traffic('tx', request.port, Buffer.from([0x43]))
+                          resolve()
+                        }
                       })
                     } catch (error) {
                       clearTimeout(timer)
@@ -569,7 +585,8 @@ export class FirmwareManager {
               state.phase = stage
               this.log(stage)
             },
-            request.listenForC
+            request.listenForC,
+            (direction, bytes) => this.traffic(direction, request.port, bytes)
           )
         } finally {
           this.abortYmodem = null

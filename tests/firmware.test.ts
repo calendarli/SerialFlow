@@ -273,6 +273,7 @@ test('Ymodem C listener replies repeatedly and reuses the locked port for flashi
     let opened = 0
     let closed = 0
     let released = 0
+    const traffic: Array<{ direction: string; hex: string; bytes: number }> = []
     port.write = (data, callback) => {
       writes.push(Buffer.from(data))
       callback()
@@ -291,6 +292,7 @@ test('Ymodem C listener replies repeatedly and reuses the locked port for flashi
       emit() {
         /* Assertions read snapshots directly. */
       },
+      emitTraffic: (event) => traffic.push(event),
       acquire: async () => {
         acquired++
         return async () => {
@@ -313,11 +315,20 @@ test('Ymodem C listener replies repeatedly and reuses the locked port for flashi
     port.emit('data', Buffer.from([0x00, 0x43, 0x43]))
     await until(() => manager.listenSnapshot()?.receivedCount === 2)
     assert.deepEqual(writes, [Buffer.from([0x43]), Buffer.from([0x43])])
+    assert.deepEqual(
+      traffic.slice(0, 3).map(({ direction, hex }) => [direction, hex]),
+      [
+        ['rx', '004343'],
+        ['tx', '43'],
+        ['tx', '43']
+      ]
+    )
     manager.start(request, 'flash')
     await until(() => !manager.snapshot()!.busy)
     assert.equal(manager.snapshot()?.outcome, 'success')
     assert.equal(manager.listenSnapshot(), null)
     assert.equal(writes[2][0], 0x01, 'header follows the preconfirmed C handshake')
+    assert.equal(traffic.filter((event) => event.direction === 'tx').length, writes.length)
     assert.deepEqual([acquired, opened, closed, released], [1, 1, 1, 1])
   } finally {
     fs.rmSync(directory, { recursive: true, force: true })

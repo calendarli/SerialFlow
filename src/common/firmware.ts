@@ -1,4 +1,5 @@
 export type FirmwareFamily = 'stm32' | 'esp32'
+export type FirmwareTraffic = { direction: 'rx' | 'tx'; port: string; hex: string; bytes: number }
 export type FirmwareFile = { path: string; name: string; size: number; address: string }
 export type FirmwareRequest = {
   family: FirmwareFamily

@@ -720,6 +720,29 @@ function App(): React.JSX.Element {
     }
   }, [flushInteractions])
 
+  useEffect(
+    () =>
+      window.api.onFirmwareTraffic(({ direction, port, hex, bytes }) => {
+        const timestampMs = Date.now()
+        pendingInteractionsRef.current.entries.push({
+          id: ++entryIdRef.current,
+          direction,
+          kind: 'firmware-wire',
+          port,
+          text: hex.match(/.{2}/g)?.join(' ') ?? hex,
+          rawHex: hex,
+          timestampMs,
+          bytes,
+          time: interactionSettingsRef.current.timestamp
+            ? formatTime(new Date(timestampMs))
+            : undefined
+        })
+        if (pendingFrameRef.current === null)
+          pendingFrameRef.current = window.setTimeout(flushInteractions, 32)
+      }),
+    [flushInteractions]
+  )
+
   const compiledRules = useMemo(
     () =>
       rules.flatMap((rule) => {

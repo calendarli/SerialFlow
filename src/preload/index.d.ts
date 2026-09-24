@@ -7,7 +7,8 @@ import type {
   FirmwareListenState,
   FirmwareRequest,
   FirmwareState,
-  FirmwareTool
+  FirmwareTool,
+  FirmwareTraffic
 } from '@common/firmware'
 
 type SerialOptions = {
@@ -57,6 +58,7 @@ declare global {
       installUpdate(): Promise<void>
       onUpdateState(callback: (state: UpdateState) => void): () => void
       getFirmwareState(): Promise<FirmwareState | null>
+      onFirmwareTraffic(callback: (traffic: FirmwareTraffic) => void): () => void
       getFirmwareListenState(): Promise<FirmwareListenState | null>
       startFirmwareListen(request: FirmwareRequest): Promise<void>
       stopFirmwareListen(): Promise<void>

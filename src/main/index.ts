@@ -379,6 +379,7 @@ function registerSerialHandlers(): void {
     temp: app.getPath('temp'),
     emit: (state) => emit('firmware:progress', state),
     emitListen: (state) => emit('firmware:listen', state),
+    emitTraffic: (traffic) => emit('firmware:traffic', traffic),
     acquire: (request) =>
       enqueuePortOperation(async () => {
         if (request.transport === 'swd') return async () => {}

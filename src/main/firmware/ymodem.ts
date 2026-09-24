@@ -57,6 +57,7 @@ class Controls {
   private pending?: { resolve: (byte: number) => void; reject: (error: Error) => void }
   private failed?: Error
   private onData = (chunk: Buffer): void => {
+    this.onTraffic?.('rx', chunk)
     for (const byte of chunk) {
       if (this.pending) {
         const pending = this.pending
@@ -71,7 +72,8 @@ class Controls {
 
   constructor(
     private port: YmodemPort,
-    private signal: AbortSignal
+    private signal: AbortSignal,
+    private onTraffic?: (direction: 'rx' | 'tx', data: Buffer) => void
   ) {
     port.on('data', this.onData)
     port.on('error', this.onError)
@@ -147,7 +149,10 @@ class Controls {
       const timer = setTimeout(() => finish(new Error('Ymodem 串口写入超时')), RESPONSE_TIMEOUT)
       this.signal.addEventListener('abort', onAbort)
       try {
-        this.port.write(data, (error) => finish(error || undefined))
+        this.port.write(data, (error) => {
+          if (!error) this.onTraffic?.('tx', data)
+          finish(error || undefined)
+        })
       } catch (error) {
         finish(error instanceof Error ? error : new Error(String(error)))
       }
@@ -181,10 +186,11 @@ export async function sendYmodem(
   signal: AbortSignal,
   onProgress: (bytes: number) => void,
   onStage: (stage: string) => void,
-  preconfirmedC = false
+  preconfirmedC = false,
+  onTraffic?: (direction: 'rx' | 'tx', data: Buffer) => void
 ): Promise<void> {
   const header = ymodemHeader(name, data.length)
-  const controls = new Controls(port, signal)
+  const controls = new Controls(port, signal, onTraffic)
   let finished = false
   try {
     if (preconfirmedC) onStage('已完成 C 选口握手，发送 Ymodem 文件信息')
@@ -240,7 +246,8 @@ export async function sendYmodem(
       await new Promise<void>((resolve) => {
         const timer = setTimeout(resolve, 500)
         try {
-          port.write(Buffer.from([CAN, CAN]), () => {
+          port.write(Buffer.from([CAN, CAN]), (error) => {
+            if (!error) onTraffic?.('tx', Buffer.from([CAN, CAN]))
             clearTimeout(timer)
             resolve()
           })

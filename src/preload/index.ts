@@ -4,7 +4,8 @@ import type {
   FirmwareFamily,
   FirmwareListenState,
   FirmwareRequest,
-  FirmwareState
+  FirmwareState,
+  FirmwareTraffic
 } from '@common/firmware'
 import type { UpdateState } from '@common/update'
 import type { SerialPortInfo } from '@common/serial-port'
@@ -51,6 +52,12 @@ const api = {
     return () => ipcRenderer.removeListener('update:state', listener)
   },
   getFirmwareState: () => ipcRenderer.invoke('firmware:state'),
+  onFirmwareTraffic: (callback: (traffic: FirmwareTraffic) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, traffic: FirmwareTraffic): void =>
+      callback(traffic)
+    ipcRenderer.on('firmware:traffic', listener)
+    return () => ipcRenderer.removeListener('firmware:traffic', listener)
+  },
   getFirmwareListenState: () => ipcRenderer.invoke('firmware:listenState'),
   startFirmwareListen: (request: FirmwareRequest) =>
     ipcRenderer.invoke('firmware:listenStart', request),

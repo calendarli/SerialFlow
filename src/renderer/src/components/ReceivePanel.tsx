@@ -465,9 +465,11 @@ export function ReceivePanel(props: Props): React.JSX.Element {
               复制当前
               {menu.entry.kind === 'firmware-log'
                 ? '烧录日志'
-                : menu.entry.direction === 'tx'
-                  ? '发送指令/数据'
-                  : '接收数据'}
+                : menu.entry.kind === 'firmware-wire'
+                  ? '烧录通讯'
+                  : menu.entry.direction === 'tx'
+                    ? '发送指令/数据'
+                    : '接收数据'}
             </button>
           )}
           {menu.entry && <div className="menu-separator" />}
