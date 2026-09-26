@@ -66,12 +66,20 @@ linux:
   # Use PNG directly; falling back to mac.icon downloads/runs the ICNS converter.
   icon: build/icon-v3.png
   syncDesktopName: true
+  extraResources:
+    - from: resources/icon-v3.png
+      to: icon.png
   target:
     - AppImage
     - snap
     - deb
   maintainer: calendarli and kairlec
   category: Utility
+deb:
+  desktop:
+    entry:
+      # Resolve directly even when the desktop's hicolor cache is stale.
+      Icon: /opt/SerialFlow/resources/icon.png
 appImage:
   # Override global maximum (XZ); mksquashfs runs without progress output.
   compression: gzip

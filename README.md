@@ -49,6 +49,8 @@ Modbus RTU 左侧快捷指令支持拖动边界调整宽度、空白处右键直
 
 仓库另有 macOS 构建配置，当前自动发布流程未包含 macOS。需要从源码运行或自行打包，请参阅 [贡献指南](CONTRIBUTING.md)。使用已打包应用无需安装 Bun 或 Node.js。
 
+Linux DEB 安装后请从应用菜单启动 SerialFlow。若升级后桌面上的旧快捷方式仍显示齿轮，请从 `/usr/share/applications/io.github.calendarli.serialflow.desktop` 重新复制快捷方式，并按桌面环境提示允许启动。DEB 入口直接引用安装目录中的图标，不依赖图标主题缓存。AppImage 文件本身的缩略图由文件管理器决定，不代表应用图标缺失。
+
 1. 连接设备，在串口配置中刷新端口列表，选择端口并设置波特率、数据位、停止位、校验位和流控制。
 2. 打开串口，在底部发送区选择目标端口，输入 ASCII 文本或完整的 HEX 字节，例如 `AA 01 BB`。
 3. 按需设置换行、CRC 或自动发送，点击发送；在交互区查看 RX / TX 记录。

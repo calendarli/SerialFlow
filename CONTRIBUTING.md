@@ -114,6 +114,8 @@ bun run test:ui:updates
 
 ## 构建与打包
 
+Linux 图标由 `build/icon-v3.png` 提供，运行时资源为 `resources/icon-v3.png`。DEB 桌面入口使用 `/opt/SerialFlow/resources/icon.png` 的绝对路径，避免旧主题缓存导致默认齿轮图标；该文件由 `linux.extraResources` 安装。修改产品名、安装路径或资源位置时同步此路径。AppImage / Snap 保留主题图标名称，以支持可移动安装。运行 `bun test tests/linux-desktop.test.ts` 检查生成的桌面入口；Linux 实机还需安装 DEB，检查应用菜单、桌面快捷方式和运行中窗口图标，分别验证 X11 / Wayland。
+
 | 命令                          | 输出目标                              |
 | ----------------------------- | ------------------------------------- |
 | `bun run build:unpack`        | 未封装为安装程序的应用目录            |
