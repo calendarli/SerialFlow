@@ -1,3 +1,4 @@
+import { ChevronRight, Layers3 } from 'lucide-react'
 import type { SerialConfig, SerialFramingMode } from '../types'
 import type { GlobalSerialFraming } from '../receive-framing-settings'
 
@@ -26,13 +27,16 @@ export function ReceiveFraming(props: Props): React.JSX.Element {
   return (
     <details className="receive-framing">
       <summary>
-        接收分帧 <span>全局 · {summary}</span>
+        <Layers3 size={15} className="framing-icon" aria-hidden="true" />
+        <strong>接收分帧</strong>
+        <span className="framing-scope">全局</span>
+        <span className="framing-summary">{summary}</span>
+        <ChevronRight size={15} className="framing-chevron" aria-hidden="true" />
       </summary>
       <div className="receive-framing-body">
-        <fieldset className="serial-framing-settings">
-          <legend>接收分帧</legend>
-          <label>
-            方式
+        <fieldset className="serial-framing-settings" aria-label="接收分帧参数">
+          <label className="framing-mode">
+            <span>分帧方式</span>
             <select
               value={config.framing.mode}
               onChange={(event) =>
@@ -47,8 +51,8 @@ export function ReceiveFraming(props: Props): React.JSX.Element {
             </select>
           </label>
           {config.framing.mode === 'delimiter' && (
-            <label>
-              分隔符
+            <label className="framing-parameter">
+              <span>分隔符</span>
               <input
                 value={config.framing.delimiter}
                 placeholder="例如 \\r\\n"
@@ -58,8 +62,15 @@ export function ReceiveFraming(props: Props): React.JSX.Element {
           )}
           {config.framing.mode === 'fixed' &&
             props.configs.map((item) => (
-              <label key={item.id}>
-                {item.name} · {item.path || '未选择端口'} · 每帧字节数
+              <label
+                className="framing-port-length"
+                key={item.id}
+                title={`${item.name} · ${item.path || '未选择端口'} · 每帧字节数`}
+              >
+                <span className="framing-port-name">
+                  {item.name}
+                  <small>{item.path || '未选择端口'}</small>
+                </span>
                 <input
                   type="number"
                   min="1"
@@ -73,29 +84,36 @@ export function ReceiveFraming(props: Props): React.JSX.Element {
                     )
                   }
                 />
+                <span className="framing-unit">字节</span>
               </label>
             ))}
           {config.framing.mode === 'header-footer' && (
-            <div className="grid-two">
-              <label>
-                帧头 HEX
+            <>
+              <label className="framing-parameter">
+                <span>
+                  帧头 <small>HEX</small>
+                </span>
                 <input
                   value={config.framing.header}
                   onChange={(event) => props.onChange({ header: event.target.value })}
                 />
               </label>
-              <label>
-                帧尾 HEX
+              <label className="framing-parameter">
+                <span>
+                  帧尾 <small>HEX</small>
+                </span>
                 <input
                   value={config.framing.footer}
                   onChange={(event) => props.onChange({ footer: event.target.value })}
                 />
               </label>
-            </div>
+            </>
           )}
           {config.framing.mode === 'idle' && (
-            <label>
-              空闲时间（ms）
+            <label className="framing-parameter">
+              <span>
+                空闲时间 <small>ms</small>
+              </span>
               <input
                 type="number"
                 min="1"
@@ -112,9 +130,9 @@ export function ReceiveFraming(props: Props): React.JSX.Element {
               />
             </label>
           )}
-          <small>
-            所有串口共用分帧规则，仅固定长度按串口设置。分帧后再进行显示、条件暂停和自动回复匹配。
-          </small>
+          {config.framing.mode === 'raw' && (
+            <p className="framing-hint">直接处理收到的数据块，无需额外参数。</p>
+          )}
         </fieldset>
       </div>
     </details>

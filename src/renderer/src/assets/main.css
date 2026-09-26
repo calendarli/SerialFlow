@@ -5765,76 +5765,172 @@ footer > span:first-child {
   max-height: 45%;
   overflow: auto;
   border-bottom: 1px solid var(--border);
+  background: linear-gradient(110deg, #f6f9ff, #fff 70%);
   font-size: 12px;
+  scrollbar-width: thin;
 }
 .receive-framing summary {
-  padding: 8px 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 6px 14px;
   cursor: pointer;
+  list-style: none;
+  user-select: none;
 }
-.receive-framing summary span {
-  margin-left: 8px;
+.receive-framing summary::-webkit-details-marker {
+  display: none;
+}
+.receive-framing summary:hover {
+  background: #eff5ff;
+}
+.receive-framing summary:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+.receive-framing summary strong {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 650;
+  color: #344561;
+}
+.framing-icon {
+  flex-shrink: 0;
+  color: #5280cd;
+}
+.framing-scope {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border: 1px solid #dce8fc;
+  border-radius: 5px;
+  background: #edf4ff;
+  color: #5077b4;
+  font-size: 10px;
+  line-height: 16px;
+}
+.framing-summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--muted);
-  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+.framing-chevron {
+  flex-shrink: 0;
+  margin-left: auto;
+  color: #8a9ab2;
+  transition: transform 120ms ease;
+}
+.receive-framing[open] .framing-chevron {
+  transform: rotate(90deg);
 }
 .receive-framing-body {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
   padding: 0 14px 10px;
-  max-height: 220px;
-  overflow: auto;
 }
 .receive-framing .serial-framing-settings {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  column-gap: 12px;
-  flex: 3 1 280px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 16px;
   min-width: 0;
   margin: 0;
-}
-.receive-framing .serial-framing-settings small {
-  grid-column: 1 / -1;
+  padding: 0;
+  border: 0;
 }
 .receive-framing label {
-  display: block;
-}
-.receive-framing select {
-  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   min-width: 0;
-  margin-top: 4px;
+  margin: 0;
+  color: #52627a;
+  font-size: 12px;
 }
-.serial-framing-settings {
-  margin: 4px 0 10px;
-  padding: 8px;
-  border: 1px solid #dbe4ef;
-  border-radius: 8px;
-  background: #f8fafc;
+.receive-framing label > span {
+  flex-shrink: 0;
 }
-.serial-framing-settings legend {
-  padding: 0 5px;
-  color: #42526a;
-  font-size: 14px;
-  font-weight: 650;
-}
-.serial-framing-settings label {
-  margin-bottom: 7px;
-}
-.serial-framing-settings input {
-  display: block;
-  width: 100%;
-  height: 31px;
-  margin-top: 4px;
-  padding: 0 7px;
-  border: 1px solid #d8e1ec;
-  border-radius: 7px;
+.receive-framing select,
+.receive-framing input {
+  min-width: 0;
+  height: 30px;
+  margin: 0;
+  padding: 0 9px;
+  border: 1px solid #d7e2f2;
+  border-radius: 6px;
   background: #fff;
   color: var(--text);
-}
-.serial-framing-settings small {
-  display: block;
-  color: #8a98ac;
   font-size: 12px;
-  line-height: 1.4;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+.receive-framing select:hover,
+.receive-framing input:hover {
+  border-color: #9bb8e4;
+}
+.receive-framing select:focus-visible,
+.receive-framing input:focus-visible {
+  outline: none;
+  border-color: #6a99e6;
+  box-shadow: 0 0 0 2px #2563eb14;
+}
+.framing-mode select {
+  width: 156px;
+}
+.framing-parameter input {
+  width: 104px;
+  font-family: Consolas, monospace;
+}
+.framing-parameter small {
+  margin-left: 3px;
+  color: #8997ab;
+  font-size: 10px;
+}
+.receive-framing .framing-port-length {
+  gap: 7px;
+  padding: 4px 7px;
+  border: 1px solid #e0e8f3;
+  border-radius: 7px;
+  background: #fff;
+}
+.receive-framing .framing-port-name {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex-shrink: 1;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  line-height: 14px;
+}
+.framing-port-name small {
+  color: #8a98ac;
+  font-size: 10px;
+}
+.framing-port-length input {
+  width: 76px;
+  font-family: Consolas, monospace;
+}
+.framing-unit {
+  color: #8a98ac;
+  font-size: 11px;
+}
+.framing-hint {
+  margin: 0;
+  color: #8a98ac;
+  font-size: 11px;
+  line-height: 1.6;
+}
+@media (prefers-reduced-motion: reduce) {
+  .framing-chevron,
+  .receive-framing input,
+  .receive-framing select {
+    transition: none;
+  }
 }
 .serial-plot-setting {
   display: flex;

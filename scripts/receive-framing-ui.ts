@@ -48,6 +48,11 @@ export async function checkReceiveFraming(window: BrowserWindow): Promise<void> 
       `JSON.parse(localStorage.getItem('serialflow.serialConfigs')).every(c => c.framing.mode === '${value}')`
     )
     assert.equal(await run('document.querySelectorAll("[aria-label=接收分帧串口]").length'), 0)
+    await run('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
+    writeFileSync(
+      join(process.cwd(), `.tmp/ui-smoke/receive-framing-${value}.png`),
+      (await window.webContents.capturePage()).toPNG()
+    )
   }
   await setValue(mode, 'fixed')
   await until(`Boolean(document.querySelector('${input}'))`)
