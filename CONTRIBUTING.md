@@ -49,6 +49,8 @@ Modbus 设备预设的数据校验、编码与顺序执行位于 `src/renderer/s
 修改换算行为时运行 `bun test tests/data-window-parser.test.ts tests/data-window-program.test.ts`，
 并在生产构建后运行 `bun run test:ui:serial`。处理队列仅保留最新待处理值；配置变更、断线和关闭窗口时须清理运行器，避免旧结果覆盖新配置。
 
+数据窗口曲线取值位于 `data-window-plot.ts`，普通模式的 HEX 使用未缩放整数，DEC 应用字段小数位。修改时运行 `bun test tests/data-window-plot.test.ts tests/plot-data.test.ts`，构建后运行串口与曲线 UI 回归；串口回归覆盖格式切换、默认值、重载保存及发送到主窗口的实际数值。
+
 ```text
 SerialFlow/
 ├── src/

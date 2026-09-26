@@ -1,10 +1,12 @@
 export type DataFieldFormat = { signed: boolean; decimals: number }
+export type DataWindowPlotFormat = 'dec' | 'hex'
 export type DataWindowConfig = {
   name: string
   port: string
   template: string
   fieldFormats: Record<string, DataFieldFormat>
   plotEnabled?: boolean
+  plotFormat?: DataWindowPlotFormat
   programming?: boolean
   program?: string
 }
@@ -43,12 +45,19 @@ export function readDataWindowConfig(id: string): DataWindowConfig {
             saved.fieldFormats && typeof saved.fieldFormats === 'object' ? saved.fieldFormats : {}
           ).map(([name, value]) => [name, normalizeDataFieldFormat(value)])
         ),
-        plotEnabled: saved.plotEnabled === true
+        plotEnabled: saved.plotEnabled === true,
+        plotFormat: saved.plotFormat === 'hex' ? 'hex' : 'dec'
       }
   } catch {
     /* Fall back to an editable example. */
   }
-  return { name: '数据窗口', port: '', template: 'AA 02 {数据:4} BB', fieldFormats: {} }
+  return {
+    name: '数据窗口',
+    port: '',
+    template: 'AA 02 {数据:4} BB',
+    fieldFormats: {},
+    plotFormat: 'dec'
+  }
 }
 export function readDataWindowIds(): string[] {
   try {

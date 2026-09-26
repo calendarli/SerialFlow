@@ -7,6 +7,7 @@ import NodeModule, { createRequire } from 'node:module'
 import { checkModbusPresets } from './modbus-presets-ui'
 import { checkSerialCommandDrag } from './serial-command-drag-ui'
 import { checkReceiveFraming } from './receive-framing-ui'
+import { checkDataWindowPlot } from './data-window-plot-ui'
 
 const root = process.cwd()
 const moduleRequire = createRequire(path.join(root, 'package.json'))
@@ -180,6 +181,7 @@ app.whenReady().then(async () => {
     dataWindow.webContents.send('serial:status', { path: 'COM991', open: false })
     await until(() => dataRun('document.body.textContent.includes("等待匹配数据")'))
     console.log('Data window: AD to gf, saved configuration, script timeout and disconnect passed')
+    await checkDataWindowPlot(window, dataWindow)
     dataWindow.destroy()
     await checkReceiveFraming(window)
     await checkSerialCommandDrag(window)

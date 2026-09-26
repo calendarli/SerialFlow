@@ -8021,6 +8021,14 @@ body.data-window-body {
   display: grid;
   gap: 4px;
 }
+.data-window-plot-options {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.data-window-plot-options select {
+  width: 86px;
+}
 .data-window-editor label.data-window-plot-toggle {
   display: flex;
   align-items: center;
