@@ -25,6 +25,8 @@ import { normalizeCommandExtensions } from './command-settings'
 import { SendPanel } from './components/SendPanel'
 import { SerialConfigPanel } from './components/SerialConfigPanel'
 import { SerialPairPanel } from './components/SerialPairPanel'
+import { SerialPairList } from './components/SerialPairList'
+import { useSerialPairs } from './use-serial-pairs'
 import { Sidebar } from './components/Sidebar'
 import {
   createAutoReplyTransfer,
@@ -532,6 +534,7 @@ function App(): React.JSX.Element {
   const [sideTab, setSideTab] = useState<
     'serial' | 'pairs' | 'commands' | 'rules' | 'modbus' | 'about'
   >('serial')
+  const serialPairs = useSerialPairs(sideTab === 'pairs')
   const [rxCommunicationCount, setRxCommunicationCount] = useState(0)
   const [txCommunicationCount, setTxCommunicationCount] = useState(0)
   const [rxFrequency, setRxFrequency] = useState(0)
@@ -1573,6 +1576,7 @@ function App(): React.JSX.Element {
           onTabChange={setSideTab}
           commandCount={commands.length}
           enabledRuleCount={rules.filter((rule) => rule.enabled).length}
+          pairsContent={<SerialPairList model={serialPairs} />}
           serialContent={
             <SerialConfigPanel
               ports={ports}
@@ -1629,7 +1633,7 @@ function App(): React.JSX.Element {
           }
         />
         {sideTab === 'pairs' ? (
-          <SerialPairPanel />
+          <SerialPairPanel model={serialPairs} />
         ) : sideTab === 'modbus' ? (
           <ModbusPanel
             collapsed={modbusCollapsed}

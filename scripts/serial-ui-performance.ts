@@ -8,6 +8,7 @@ import { checkModbusPresets } from './modbus-presets-ui'
 import { checkSerialCommandDrag } from './serial-command-drag-ui'
 import { checkReceiveFraming } from './receive-framing-ui'
 import { checkDataWindowPlot } from './data-window-plot-ui'
+import { checkSerialPairs } from './serial-pairs-ui'
 
 const root = process.cwd()
 const moduleRequire = createRequire(path.join(root, 'package.json'))
@@ -191,6 +192,7 @@ app.whenReady().then(async () => {
       path.join(root, '.tmp/ui-smoke/modbus-presets.png'),
       (await window.webContents.capturePage()).toPNG()
     )
+    await checkSerialPairs(window)
     clearTimeout(deadline)
     app.exit(0)
   } catch (error) {
