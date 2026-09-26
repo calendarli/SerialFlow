@@ -27,12 +27,25 @@ export async function checkReceiveFraming(window: BrowserWindow): Promise<void> 
   })()`)
   window.webContents.reload()
   await until('Boolean(document.querySelector(".receiver .receive-framing"))')
-  assert.equal(await run('document.querySelector(".receive-framing").open'), false)
+  assert.equal(await run('document.querySelector(".receive-framing").hidden'), true)
+  assert.equal(
+    await run(
+      `document.querySelector('[aria-controls="auto-pause-settings"]').nextElementSibling.getAttribute('aria-controls')`
+    ),
+    'receive-framing-settings'
+  )
+  assert.equal(
+    await run(
+      `document.querySelector('[aria-controls="auto-pause-settings"]').className === document.querySelector('[aria-controls="receive-framing-settings"]').className`
+    ),
+    true
+  )
   assert.equal(
     await run('document.querySelectorAll(".serial-profile .serial-framing-settings").length'),
     0
   )
-  await run('document.querySelector(".receive-framing summary").click()')
+  await run(`document.querySelector('[aria-controls="receive-framing-settings"]').click()`)
+  assert.equal(await run('document.querySelector(".receive-framing").hidden'), false)
   const mode = '.receive-framing .serial-framing-settings select'
   const input = '.receive-framing .serial-framing-settings input'
   for (const [value, expectedInputs] of [
@@ -64,9 +77,7 @@ export async function checkReceiveFraming(window: BrowserWindow): Promise<void> 
   await setValue(mode, 'idle')
   await until(`Boolean(document.querySelector('${input}'))`)
   await setValue(input, '33', true)
-  await until(
-    "document.querySelector('.receive-framing summary').textContent.includes('空闲 33 ms')"
-  )
+
   await until(
     "JSON.parse(localStorage.getItem('serialflow.serialConfigs')).every(c => c.framing.idleTimeout === 33)"
   )
@@ -80,7 +91,7 @@ export async function checkReceiveFraming(window: BrowserWindow): Promise<void> 
   )
   window.webContents.reload()
   await until('Boolean(document.querySelector(".receive-framing"))')
-  await run('document.querySelector(".receive-framing summary").click()')
+  await run(`document.querySelector('[aria-controls="receive-framing-settings"]').click()`)
   assert.equal(await run(`document.querySelector('${mode}').value`), 'idle')
   assert.equal(await run(`document.querySelector('${input}').value`), '33')
   await setValue(mode, 'fixed')
@@ -103,8 +114,8 @@ export async function checkReceiveFraming(window: BrowserWindow): Promise<void> 
     join(process.cwd(), '.tmp/ui-smoke/receive-framing.png'),
     (await window.webContents.capturePage()).toPNG()
   )
-  await run('document.querySelector(".receive-framing summary").click()')
-  assert.equal(await run('document.querySelector(".receive-framing").open'), false)
+  await run(`document.querySelector('[aria-controls="receive-framing-settings"]').click()`)
+  assert.equal(await run('document.querySelector(".receive-framing").hidden'), true)
   console.log(
     'Receive framing: global modes, independent lengths, new ports, reload and disclosure passed'
   )

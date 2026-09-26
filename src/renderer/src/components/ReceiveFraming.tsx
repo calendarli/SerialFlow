@@ -1,8 +1,8 @@
-import { ChevronRight, Layers3 } from 'lucide-react'
 import type { SerialConfig, SerialFramingMode } from '../types'
 import type { GlobalSerialFraming } from '../receive-framing-settings'
 
 type Props = {
+  expanded: boolean
   configs: SerialConfig[]
   onChange: (patch: Partial<GlobalSerialFraming>) => void
   onFixedLengthChange: (id: number, length: number) => void
@@ -11,28 +11,8 @@ type Props = {
 export function ReceiveFraming(props: Props): React.JSX.Element {
   const config = props.configs[0]
   if (!config) return <></>
-  const modeLabels: Record<SerialFramingMode, string> = {
-    raw: '原始数据块',
-    delimiter: '分隔符',
-    fixed: '固定长度',
-    'header-footer': '帧头 + 帧尾',
-    idle: '空闲超时'
-  }
-  const summary =
-    config.framing.mode === 'idle'
-      ? '空闲 ' + config.framing.idleTimeout + ' ms'
-      : config.framing.mode === 'fixed'
-        ? '固定长度 · 按串口设置'
-        : modeLabels[config.framing.mode]
   return (
-    <details className="receive-framing">
-      <summary>
-        <Layers3 size={15} className="framing-icon" aria-hidden="true" />
-        <strong>接收分帧</strong>
-        <span className="framing-scope">全局</span>
-        <span className="framing-summary">{summary}</span>
-        <ChevronRight size={15} className="framing-chevron" aria-hidden="true" />
-      </summary>
+    <div className="receive-framing" id="receive-framing-settings" hidden={!props.expanded}>
       <div className="receive-framing-body">
         <fieldset className="serial-framing-settings" aria-label="接收分帧参数">
           <label className="framing-mode">
@@ -135,6 +115,6 @@ export function ReceiveFraming(props: Props): React.JSX.Element {
           )}
         </fieldset>
       </div>
-    </details>
+    </div>
   )
 }

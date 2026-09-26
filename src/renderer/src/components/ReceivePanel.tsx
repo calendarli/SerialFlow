@@ -96,6 +96,7 @@ export function ReceivePanel(props: Props): React.JSX.Element {
   )
   const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null)
   const [menu, setMenu] = useState<ContextMenu | null>(null)
+  const [framingExpanded, setFramingExpanded] = useState(false)
   const [autoPauseExpanded, setAutoPauseExpanded] = useState(
     () => localStorage.getItem('serialflow.autoPauseExpanded') !== 'false'
   )
@@ -260,6 +261,17 @@ export function ReceivePanel(props: Props): React.JSX.Element {
             条件暂停
             {props.autoPauseEnabled && <span className="auto-pause-enabled">已启用</span>}
           </button>
+          <button
+            type="button"
+            className="auto-pause-disclosure"
+            aria-expanded={framingExpanded}
+            aria-controls="receive-framing-settings"
+            title={`${framingExpanded ? '收起' : '展开'}接收分帧设置`}
+            onClick={() => setFramingExpanded((current) => !current)}
+          >
+            {framingExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            接收分帧
+          </button>
         </div>
         <div className="head-tools">
           <div className="receive-display-toggles" role="group" aria-label="接收显示选项">
@@ -316,6 +328,7 @@ export function ReceivePanel(props: Props): React.JSX.Element {
         </div>
       </div>
       <ReceiveFraming
+        expanded={framingExpanded}
         configs={props.configs}
         onChange={props.onFramingChange}
         onFixedLengthChange={props.onFixedLengthChange}

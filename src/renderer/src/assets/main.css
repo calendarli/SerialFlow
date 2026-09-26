@@ -5765,71 +5765,15 @@ footer > span:first-child {
   max-height: 45%;
   overflow: auto;
   border-bottom: 1px solid var(--border);
-  background: linear-gradient(110deg, #f6f9ff, #fff 70%);
+  background: #fbfcfe;
   font-size: 12px;
   scrollbar-width: thin;
 }
-.receive-framing summary {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 36px;
-  padding: 6px 14px;
-  cursor: pointer;
-  list-style: none;
-  user-select: none;
-}
-.receive-framing summary::-webkit-details-marker {
-  display: none;
-}
-.receive-framing summary:hover {
-  background: #eff5ff;
-}
-.receive-framing summary:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: -2px;
-}
-.receive-framing summary strong {
-  flex-shrink: 0;
-  font-size: 12px;
-  font-weight: 650;
-  color: #344561;
-}
-.framing-icon {
-  flex-shrink: 0;
-  color: #5280cd;
-}
-.framing-scope {
-  flex-shrink: 0;
-  padding: 1px 6px;
-  border: 1px solid #dce8fc;
-  border-radius: 5px;
-  background: #edf4ff;
-  color: #5077b4;
-  font-size: 10px;
-  line-height: 16px;
-}
-.framing-summary {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--muted);
-  font-size: 11px;
-}
-.framing-chevron {
-  flex-shrink: 0;
-  margin-left: auto;
-  color: #8a9ab2;
-  transition: transform 120ms ease;
-}
-.receive-framing[open] .framing-chevron {
-  transform: rotate(90deg);
-}
 .receive-framing-body {
-  padding: 0 14px 10px;
+  padding: 4px 10px;
 }
 .receive-framing .serial-framing-settings {
+  min-height: 28px;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -5845,8 +5789,14 @@ footer > span:first-child {
   gap: 8px;
   min-width: 0;
   margin: 0;
-  color: #52627a;
-  font-size: 12px;
+  color: #64748b;
+  font-size: 13px;
+}
+.auto-pause-bar .head-check,
+.auto-pause-bar .mini-segment button,
+.auto-pause-bar > input:not([type]),
+.auto-pause-bar > input[type='text'] {
+  font-size: 13px;
 }
 .receive-framing label > span {
   flex-shrink: 0;
@@ -5854,14 +5804,14 @@ footer > span:first-child {
 .receive-framing select,
 .receive-framing input {
   min-width: 0;
-  height: 30px;
+  height: 27px;
   margin: 0;
-  padding: 0 9px;
-  border: 1px solid #d7e2f2;
+  padding: 0 8px;
+  border: 1px solid #d8e1ec;
   border-radius: 6px;
   background: #fff;
   color: var(--text);
-  font-size: 12px;
+  font-size: 13px;
   transition:
     border-color 120ms ease,
     box-shadow 120ms ease;
@@ -5926,7 +5876,6 @@ footer > span:first-child {
   line-height: 1.6;
 }
 @media (prefers-reduced-motion: reduce) {
-  .framing-chevron,
   .receive-framing input,
   .receive-framing select {
     transition: none;
