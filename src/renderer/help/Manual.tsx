@@ -98,7 +98,7 @@ export default function Manual(): React.JSX.Element {
             </div>
           </article>
 
-          <article id="serial" data-title="串口配置 多串口 波特率 分帧 打开 关闭">
+          <article id="serial" data-title="串口配置 多串口 波特率 打开 关闭">
             <h2>多串口配置</h2>
             <h3>端口列表与状态</h3>
             <p>
@@ -109,7 +109,17 @@ export default function Manual(): React.JSX.Element {
             <p>
               波特率、数据位、停止位和校验位必须与设备一致。端口打开后参数会锁定；如需修改，请先关闭该串口。
             </p>
+          </article>
+
+          <article
+            id="interaction"
+            data-title="数据交互 接收 分帧 HEX 时间戳 暂停 搜索 清空 缓存 条件暂停 设置 字体 编码 GBK RX TX"
+          >
+            <h2>数据交互</h2>
             <h3>接收分帧</h3>
+            <p>
+              展开“接收分帧”调整全局规则，所有串口共用分帧方式、分隔符、帧头帧尾和空闲时间；只有固定长度按串口分别设置。收起时显示规则摘要，修改即时生效，并随工程导入导出。旧配置和工程以第一个串口的规则作为全局规则，各串口固定长度保持不变。
+            </p>
             <ul>
               <li>
                 <strong>原始数据块：</strong>按系统收到的数据块直接处理，适合简单观察。
@@ -130,13 +140,7 @@ export default function Manual(): React.JSX.Element {
             <div className="warn">
               分帧会影响显示、条件暂停、自动回复和曲线解析。协议有明确帧边界时，建议选择对应方式。
             </div>
-          </article>
-
-          <article
-            id="interaction"
-            data-title="数据交互 接收 HEX 时间戳 暂停 搜索 清空 缓存 条件暂停 设置 字体 编码 GBK RX TX"
-          >
-            <h2>数据交互</h2>
+            <h3>显示控制</h3>
             <ul>
               <li>
                 <strong>接收 HEX：</strong>以十六进制字节显示接收数据；关闭时按文本显示。

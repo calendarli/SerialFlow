@@ -1,16 +1,21 @@
+import { ReceiveFraming } from './ReceiveFraming'
+import type { GlobalSerialFraming } from '../receive-framing-settings'
 import { ClearActionIcon } from './ClearActionIcon'
 import { InteractionSettings } from './InteractionSettings'
 import type { InteractionDisplay } from '../interaction-settings'
 import { Clock3, Pause, ChevronDown, ChevronRight } from 'lucide-react'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import type { InteractionEntry } from '../types'
+import type { InteractionEntry, SerialConfig } from '../types'
 import { formatFirmwareTraffic, isReadableFirmwareTraffic } from '../firmware-traffic-display'
 
 type SearchDirection = 'up' | 'down' | null
 type ContextMenu = { x: number; y: number; entry: InteractionEntry | null }
 
 type Props = {
+  configs: SerialConfig[]
+  onFramingChange: (patch: Partial<GlobalSerialFraming>) => void
+  onFixedLengthChange: (id: number, length: number) => void
   display: InteractionDisplay
   onDisplayChange: (value: InteractionDisplay) => void
   entries: InteractionEntry[]
@@ -310,6 +315,11 @@ export function ReceivePanel(props: Props): React.JSX.Element {
           </div>
         </div>
       </div>
+      <ReceiveFraming
+        configs={props.configs}
+        onChange={props.onFramingChange}
+        onFixedLengthChange={props.onFixedLengthChange}
+      />
       {autoPauseExpanded && (
         <div className="auto-pause-bar" id="auto-pause-settings">
           <label className="head-check">

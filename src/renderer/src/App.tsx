@@ -37,6 +37,7 @@ import {
   type QuickCommandImportOptions
 } from './quick-command-import'
 import { defaultSerialFraming, SerialFramer } from './serial-framer'
+import { applyGlobalFraming, type GlobalSerialFraming } from './receive-framing-settings'
 import { autoReplyProgramRuntime } from './scripts/auto-reply-program'
 import { fillGlobalPlaceholders, normalizeGroupGlobals } from './scripts/group-globals'
 import {
@@ -369,13 +370,15 @@ function loadSerialConfigs(): SerialConfig[] {
     const saved = JSON.parse(localStorage.getItem(serialConfigsKey) || 'null') as
       SerialConfig[] | null
     if (Array.isArray(saved) && saved.length) {
-      return saved.map((config, index) => ({
-        ...config,
-        id: Number(config.id) || Date.now() + index,
-        name: config.name?.trim() || `串口组 ${index + 1}`,
-        framing: normalizeSerialFraming(config.framing),
-        plotEnabled: config.plotEnabled === true
-      }))
+      return applyGlobalFraming(
+        saved.map((config, index) => ({
+          ...config,
+          id: Number(config.id) || Date.now() + index,
+          name: config.name?.trim() || `串口组 ${index + 1}`,
+          framing: normalizeSerialFraming(config.framing),
+          plotEnabled: config.plotEnabled === true
+        }))
+      )
     }
   } catch {
     /* Migrate the previous single-port setting below. */
@@ -1043,7 +1046,9 @@ function App(): React.JSX.Element {
     }
     const offData = window.api.onData(({ path: sourcePort, chunks }) => {
       const framing =
-        serialConfigs.find((config) => config.path === sourcePort)?.framing || defaultSerialFraming
+        serialConfigs.find((config) => config.path === sourcePort)?.framing ||
+        serialConfigs[0]?.framing ||
+        defaultSerialFraming
       for (const chunk of chunks) {
         try {
           serialFramerRef.current.push(sourcePort, framing, chunk, (frame) =>
@@ -1246,7 +1251,11 @@ function App(): React.JSX.Element {
         dataBits: 8,
         stopBits: 1,
         parity: 'none',
-        framing: { ...defaultSerialFraming },
+        framing: {
+          ...defaultSerialFraming,
+          ...current[0]?.framing,
+          fixedLength: defaultSerialFraming.fixedLength
+        },
         plotEnabled: false
       }
     ])
@@ -1254,6 +1263,20 @@ function App(): React.JSX.Element {
 
   const removeSerialConfig = (id: number): void => {
     setSerialConfigs((current) => current.filter((config) => config.id !== id))
+  }
+
+  const updateReceiveFraming = (patch: Partial<GlobalSerialFraming>): void => {
+    setSerialConfigs((current) => applyGlobalFraming(current, patch))
+  }
+
+  const updateReceiveFixedLength = (id: number, length: number): void => {
+    setSerialConfigs((current) =>
+      current.map((config) =>
+        config.id === id
+          ? { ...config, framing: { ...config.framing, fixedLength: length } }
+          : config
+      )
+    )
   }
 
   const toggleConnection = async (config: SerialConfig): Promise<void> => {
@@ -1464,13 +1487,15 @@ function App(): React.JSX.Element {
         throw new Error('不是受支持的 SerialFlow 工程文件')
       if (Array.isArray(project.serialConfigs) && project.serialConfigs.length)
         setSerialConfigs(
-          (project.serialConfigs as SerialConfig[]).map((config, index) => ({
-            ...config,
-            id: Number(config.id) || Date.now() + index,
-            name: config.name?.trim() || `串口组 ${index + 1}`,
-            framing: normalizeSerialFraming(config.framing),
-            plotEnabled: config.plotEnabled === true
-          }))
+          applyGlobalFraming(
+            (project.serialConfigs as SerialConfig[]).map((config, index) => ({
+              ...config,
+              id: Number(config.id) || Date.now() + index,
+              name: config.name?.trim() || `串口组 ${index + 1}`,
+              framing: normalizeSerialFraming(config.framing),
+              plotEnabled: config.plotEnabled === true
+            }))
+          )
         )
       if (Array.isArray(project.rules))
         setRules(
@@ -1626,6 +1651,9 @@ function App(): React.JSX.Element {
                 embedded
               />
               <ReceivePanel
+                configs={serialConfigs}
+                onFramingChange={updateReceiveFraming}
+                onFixedLengthChange={updateReceiveFixedLength}
                 entries={interactionCache.entries}
                 rxHex={rxHex}
                 timestamp={timestamp}

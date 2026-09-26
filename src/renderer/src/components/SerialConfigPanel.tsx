@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { serialPortLabel } from '@common/serial-port'
-import type { DataBits, Parity, Port, SerialConfig, SerialFramingMode, StopBits } from '../types'
+import type { DataBits, Parity, Port, SerialConfig, StopBits } from '../types'
 
 type Props = {
   ports: Port[]
@@ -184,108 +184,6 @@ export function SerialConfigPanel(props: Props): React.JSX.Element {
                       <option value="space">Space</option>
                     </select>
                   </label>
-                  <fieldset className="serial-framing-settings">
-                    <legend>接收分帧</legend>
-                    <label>
-                      方式
-                      <select
-                        value={config.framing.mode}
-                        onChange={(event) =>
-                          props.onChange(config.id, {
-                            framing: {
-                              ...config.framing,
-                              mode: event.target.value as SerialFramingMode
-                            }
-                          })
-                        }
-                      >
-                        <option value="raw">原始数据块</option>
-                        <option value="delimiter">分隔符</option>
-                        <option value="fixed">固定长度</option>
-                        <option value="header-footer">帧头 + 帧尾</option>
-                        <option value="idle">空闲超时</option>
-                      </select>
-                    </label>
-                    {config.framing.mode === 'delimiter' && (
-                      <label>
-                        分隔符
-                        <input
-                          value={config.framing.delimiter}
-                          placeholder="例如 \\r\\n"
-                          onChange={(event) =>
-                            props.onChange(config.id, {
-                              framing: { ...config.framing, delimiter: event.target.value }
-                            })
-                          }
-                        />
-                      </label>
-                    )}
-                    {config.framing.mode === 'fixed' && (
-                      <label>
-                        每帧字节数
-                        <input
-                          type="number"
-                          min="1"
-                          max="1048576"
-                          value={config.framing.fixedLength}
-                          onChange={(event) =>
-                            props.onChange(config.id, {
-                              framing: {
-                                ...config.framing,
-                                fixedLength: Math.max(1, Number(event.target.value) || 1)
-                              }
-                            })
-                          }
-                        />
-                      </label>
-                    )}
-                    {config.framing.mode === 'header-footer' && (
-                      <div className="grid-two">
-                        <label>
-                          帧头 HEX
-                          <input
-                            value={config.framing.header}
-                            onChange={(event) =>
-                              props.onChange(config.id, {
-                                framing: { ...config.framing, header: event.target.value }
-                              })
-                            }
-                          />
-                        </label>
-                        <label>
-                          帧尾 HEX
-                          <input
-                            value={config.framing.footer}
-                            onChange={(event) =>
-                              props.onChange(config.id, {
-                                framing: { ...config.framing, footer: event.target.value }
-                              })
-                            }
-                          />
-                        </label>
-                      </div>
-                    )}
-                    {config.framing.mode === 'idle' && (
-                      <label>
-                        空闲时间（ms）
-                        <input
-                          type="number"
-                          min="1"
-                          max="60000"
-                          value={config.framing.idleTimeout}
-                          onChange={(event) =>
-                            props.onChange(config.id, {
-                              framing: {
-                                ...config.framing,
-                                idleTimeout: Math.max(1, Number(event.target.value) || 1)
-                              }
-                            })
-                          }
-                        />
-                      </label>
-                    )}
-                    <small>分帧后再进行显示、条件暂停和自动回复匹配</small>
-                  </fieldset>
                   <div className="serial-plot-setting">
                     <label>
                       <input

@@ -83,6 +83,8 @@ SerialFlow/
 
 ## 常用命令与验证
 
+接收分帧入口位于数据交互区域，组件为 `ReceiveFraming.tsx`，全局规则通过 `receive-framing-settings.ts` 同步到所有串口，只有固定长度独立保存；新增串口继承全局规则，旧配置和导入工程以第一个串口的规则统一，保留各串口长度及原有工程格式。运行 `bun test tests/receive-framing-settings.test.ts tests/serial-protocols.test.ts`。`bun run test:ui:serial` 包含五种全局模式、独立长度、新增串口继承、重载保存及展开收起验证，并输出 `.tmp/ui-smoke/receive-framing.png`。
+
 | 命令                   | 用途                                     |
 | ---------------------- | ---------------------------------------- |
 | `bun run dev`          | 启动开发环境                             |

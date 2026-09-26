@@ -5760,6 +5760,49 @@ footer > span:first-child {
   margin-bottom: 8px;
   font-size: 15px;
 }
+.receive-framing {
+  flex-shrink: 0;
+  max-height: 45%;
+  overflow: auto;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.receive-framing summary {
+  padding: 8px 14px;
+  cursor: pointer;
+}
+.receive-framing summary span {
+  margin-left: 8px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.receive-framing-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 0 14px 10px;
+  max-height: 220px;
+  overflow: auto;
+}
+.receive-framing .serial-framing-settings {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  column-gap: 12px;
+  flex: 3 1 280px;
+  min-width: 0;
+  margin: 0;
+}
+.receive-framing .serial-framing-settings small {
+  grid-column: 1 / -1;
+}
+.receive-framing label {
+  display: block;
+}
+.receive-framing select {
+  width: 100%;
+  min-width: 0;
+  margin-top: 4px;
+}
 .serial-framing-settings {
   margin: 4px 0 10px;
   padding: 8px;
