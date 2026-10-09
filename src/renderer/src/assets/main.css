@@ -1759,7 +1759,7 @@ footer > span:first-child {
   background: #fff;
 }
 .interaction-view .interaction-virtual-row {
-  height: 1.55em;
+  height: auto;
   padding: 0;
 }
 .interaction-view .interaction-entry,
@@ -1767,8 +1767,8 @@ footer > span:first-child {
 .interaction-view .interaction-entry.tx {
   grid-template-columns: 15.4em minmax(0, 1fr);
   gap: 0;
-  min-height: 1.55em;
-  height: 100%;
+  min-height: max(20px, 1.55em);
+  height: auto;
   margin: 0;
   overflow: visible;
   border: 0;

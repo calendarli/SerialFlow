@@ -69,7 +69,8 @@ const InteractionRow = memo(function InteractionRow({
         {entry.time && <time>{entry.time}</time>}
         <span>{entry.bytes} B</span>
       </div>
-      <pre>{text || ' '}</pre>
+      {/* Normalize line endings only for layout; copying and protocol data retain the original text. */}
+      <pre>{text.replace(/\r\n?/g, '\n') || ' '}</pre>
     </div>
   )
 })
@@ -119,7 +120,7 @@ export function ReceivePanel(props: Props): React.JSX.Element {
       ),
     [visibleEntries, props.display, props.fontSize]
   )
-  const virtualizer = useVirtualizer({
+  const virtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
     count: visibleEntries.length,
     getScrollElement,
     getItemKey,
@@ -127,13 +128,33 @@ export function ReceivePanel(props: Props): React.JSX.Element {
     overscan: 14
   })
   const lastEntryId = visibleEntries[visibleEntries.length - 1]?.id
+  const totalSize = virtualizer.getTotalSize()
 
-  useEffect(() => virtualizer.measure(), [props.fontSize, props.display, props.rxHex, virtualizer])
+  useLayoutEffect(() => {
+    virtualizer.measure()
+    // Rebuild offsets before resizeItem compares against the cleared cache.
+    virtualizer.getTotalSize()
+    // Reset offscreen estimates, then immediately restore mounted row sizes.
+    // Unchanged elements may not emit another ResizeObserver notification.
+    for (const element of virtualizer.elementsCache.values()) {
+      virtualizer.resizeItem(Number(element.dataset.index), element.offsetHeight)
+    }
+  }, [props.fontSize, props.display, props.rxHex, virtualizer])
+
+  useLayoutEffect(() => {
+    // The traffic cache evicts old records; bound the new measurement cache too.
+    // Prune in batches, and only remove keys absent from the retained history.
+    if (virtualizer.itemSizeCache.size <= visibleEntries.length + 256) return
+    const retained = new Set(visibleEntries.map((entry) => entry.id))
+    for (const key of virtualizer.itemSizeCache.keys()) {
+      if (typeof key !== 'number' || !retained.has(key)) virtualizer.itemSizeCache.delete(key)
+    }
+  }, [visibleEntries, virtualizer])
 
   useLayoutEffect(() => {
     if (!scrollElement || !visibleEntries.length || !followTailRef.current) return
     scrollElement.scrollTop = scrollElement.scrollHeight
-  }, [lastEntryId, visibleEntries.length, scrollElement])
+  }, [lastEntryId, visibleEntries.length, scrollElement, totalSize])
 
   useEffect(() => {
     const closeMenu = (): void => setMenu(null)
@@ -474,7 +495,7 @@ export function ReceivePanel(props: Props): React.JSX.Element {
         }
       >
         {visibleEntries.length ? (
-          <div className="interaction-virtual-space" style={{ height: virtualizer.getTotalSize() }}>
+          <div className="interaction-virtual-space" style={{ height: totalSize }}>
             {virtualizer.getVirtualItems().map((item) => {
               const entry = visibleEntries[item.index]
               return (
@@ -482,9 +503,9 @@ export function ReceivePanel(props: Props): React.JSX.Element {
                   className="interaction-virtual-row"
                   key={item.key}
                   data-index={item.index}
+                  ref={virtualizer.measureElement}
                   style={{
                     transform: `translateY(${item.start}px)`,
-                    height: item.size,
                     fontSize: props.display[entry.direction].size ?? props.fontSize
                   }}
                 >

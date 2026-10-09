@@ -6,6 +6,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import assert from 'node:assert/strict'
 import NodeModule, { createRequire } from 'node:module'
+import { checkMultilineInteraction } from './interaction-multiline-ui'
 
 const root = process.cwd()
 const moduleRequire = createRequire(path.join(root, 'package.json'))
@@ -138,6 +139,9 @@ app.whenReady().then(async () => {
     )
     assert.deepEqual(await run('window.api.getOpenedPortPaths()'), [endpoint])
     fs.writeFileSync(path.join(output, 'remote-serial.png'), (await window.capturePage()).toPNG())
+    await checkMultilineInteraction(window, (text) => {
+      for (const peer of peers) peer.write(text)
+    })
     for (const peer of peers) peer.end()
     await until(() => run('!document.querySelector(".serial-profile.open")'))
     assert.deepEqual(await run('window.api.getOpenedPortPaths()'), [])
