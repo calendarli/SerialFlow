@@ -35,6 +35,8 @@ bun run postinstall
 
 ## 项目结构
 
+ser2net 远程串口使用 `src/main/tcp-serial-port.ts` 的原始 TCP 连接，地址校验和规范化位于 `src/common/remote-serial.ts`。与本地串口共用 IPC、写入队列和接收处理；串口参数在服务端配置。修改后运行 `bun test tests/remote-serial.test.ts tests/serial-write.test.ts tests/serial-protocols.test.ts`，构建后执行 `bun run test:ui:remote`。界面回归使用真实本机 TCP 服务及 Electron IPC，不需要串口硬件；真实 ser2net + UART 仍需单独验收。使用说明见 [ser2net 教程](docs/ser2net.md)。
+
 Modbus 设备预设的数据校验、编码与顺序执行位于 `src/renderer/src/modbus-presets.ts`，
 界面位于 `components/ModbusPresets.tsx`，复用 `ModbusPanel` 的 RTU 客户端。
 侧栏内容区最小宽度由 `sidebar-layout.ts` 统一定义，普通 TAB 和 Modbus 拖拽侧栏应保持一致。

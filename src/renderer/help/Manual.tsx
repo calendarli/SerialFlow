@@ -21,6 +21,7 @@ export default function Manual(): React.JSX.Element {
             <a href="#layout">界面布局</a>
             <a href="#start">快速开始</a>
             <a href="#serial">串口配置</a>
+            <a href="#remote-serial">ser2net 远程串口</a>
             <a href="#interaction">数据交互</a>
             <a href="#plot">实时曲线</a>
             <a href="#send">数据发送</a>
@@ -108,6 +109,41 @@ export default function Manual(): React.JSX.Element {
             <h3>通信参数</h3>
             <p>
               波特率、数据位、停止位和校验位必须与设备一致。端口打开后参数会锁定；如需修改，请先关闭该串口。
+            </p>
+          </article>
+
+          <article id="remote-serial" data-title="ser2net 远程串口 TCP 网络 无GUI SSH RFC2217">
+            <h2>ser2net 远程串口</h2>
+            <p>
+              在无 GUI 的 Linux 设备上运行 ser2net，将物理串口转发为原始 TCP
+              端口。在本机串口配置中选择“ser2net TCP（远程串口）”，输入{' '}
+              <code>tcp://192.168.1.50:2000</code> 并连接。本机无需连接物理串口。
+            </p>
+            <pre>
+              <code>{`connection: &serialflow_uart0
+  accepter: tcp,192.168.1.50,2000
+  connector: serialdev,/dev/ttyUSB0,115200n81,local
+  timeout: 0
+  options:
+    max-connections: 1`}</code>
+            </pre>
+            <p>
+              示例适用于 ser2net 4.x 的 version 1 YAML。替换服务器 IP、串口路径和参数，并重启
+              ser2net。发送区选择 TCP 端点后，可使用
+              HEX/文本收发、快捷指令、自动回复和曲线；网络会拆分或合并数据，请按设备协议设置接收分帧。
+            </p>
+            <div className="warn">
+              波特率、校验和流控由远端 ser2net 配置。当前仅支持原始 TCP，不支持 Telnet/RFC2217
+              协商、DTR/RTS 控制或远程固件烧录。不要配置 banner、openstr 或 closestr 插入额外数据。
+            </div>
+            <p>
+              原始 TCP 没有认证和加密，请在可信网络使用，跨网络可通过 SSH 隧道或 VPN
+              连接。检测到连接中断后请检查网络与 ser2net
+              日志，再手动重新连接。配置自动保存在本机，并随工程导入导出。
+            </p>
+            <p>
+              连接被拒绝时检查监听地址和端口；连接后立即断开时检查远端串口路径、访问权限及占用。完整安装、配置和
+              SSH 隧道示例见项目 README 中的“ser2net 使用教程”。
             </p>
           </article>
 

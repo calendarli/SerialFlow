@@ -1,4 +1,5 @@
 import type { SerialPortInfo } from '@common/serial-port'
+import type { SerialTransport } from '@common/remote-serial'
 import type { PlotMeasurement, PlotMeasurementCommand } from '@common/plot-measurement'
 import type { UpdateState } from '@common/update'
 import type {
@@ -13,6 +14,7 @@ import type {
 
 type SerialOptions = {
   path: string
+  transport?: SerialTransport
   baudRate: number
   dataBits: 5 | 6 | 7 | 8
   stopBits: 1 | 1.5 | 2

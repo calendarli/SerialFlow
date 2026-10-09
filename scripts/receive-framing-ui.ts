@@ -5,6 +5,13 @@ import { join } from 'node:path'
 
 export async function checkReceiveFraming(window: BrowserWindow): Promise<void> {
   const run = (source: string): Promise<unknown> => window.webContents.executeJavaScript(source)
+  // Windows can stop animation frames for an occluded regression window even
+  // with background throttling disabled. Bound the screenshot preparation wait.
+  const waitForPaint = (): Promise<unknown> =>
+    run(`new Promise(resolve => {
+      const timer = setTimeout(resolve, 250);
+      requestAnimationFrame(() => requestAnimationFrame(() => { clearTimeout(timer); resolve(); }));
+    })`)
   const until = async (source: string): Promise<void> => {
     const deadline = Date.now() + 8000
     while (!(await run(source))) {
@@ -61,7 +68,7 @@ export async function checkReceiveFraming(window: BrowserWindow): Promise<void> 
       `JSON.parse(localStorage.getItem('serialflow.serialConfigs')).every(c => c.framing.mode === '${value}')`
     )
     assert.equal(await run('document.querySelectorAll("[aria-label=接收分帧串口]").length'), 0)
-    await run('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
+    await waitForPaint()
     writeFileSync(
       join(process.cwd(), `.tmp/ui-smoke/receive-framing-${value}.png`),
       (await window.webContents.capturePage()).toPNG()
@@ -100,7 +107,7 @@ export async function checkReceiveFraming(window: BrowserWindow): Promise<void> 
     await run(`Array.from(document.querySelectorAll('${input}')).map(el => el.value)`),
     ['8', '12', '8']
   )
-  await run('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
+  await waitForPaint()
   assert.equal(
     await run(`(() => {
       const receiver = document.querySelector('.receiver').getBoundingClientRect();

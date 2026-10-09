@@ -1,4 +1,12 @@
 import { writeSerialData } from './serial-write'
+import { TcpSerialPort, explainTcpError } from './tcp-serial-port'
+import {
+  isRemoteSerial,
+  isTcpPath,
+  parseTcpEndpoint,
+  type SerialTransport
+} from '../common/remote-serial'
+import { normalizeSerialPortPath } from '../common/serial-port'
 import { registerPlotMeasurementWindow } from './plot-measurement-window'
 import { app, shell, BrowserWindow, dialog, ipcMain } from 'electron'
 import { execFile } from 'child_process'
@@ -74,6 +82,7 @@ function rememberFirmwareDirectory(filePath: string): void {
 
 type PortOptions = {
   path: string
+  transport?: SerialTransport
   baudRate: number
   dataBits: 5 | 6 | 7 | 8
   stopBits: 1 | 1.5 | 2
@@ -82,7 +91,13 @@ type PortOptions = {
 
 function validatePortOptions(options: PortOptions): void {
   if (!options || typeof options !== 'object') throw new Error('串口配置无效，请重新选择参数')
-  if (!options.path?.trim()) throw new Error('串口名称不能为空')
+  if (typeof options.path !== 'string' || !options.path.trim()) throw new Error('串口名称不能为空')
+  if (options.transport !== undefined && !['serial', 'tcp'].includes(options.transport))
+    throw new Error('不支持的连接方式')
+  if (isRemoteSerial(options)) {
+    parseTcpEndpoint(options.path)
+    return
+  }
   if (!Number.isInteger(options.baudRate) || options.baudRate <= 0)
     throw new Error('波特率必须是正整数')
   if (![5, 6, 7, 8].includes(options.dataBits)) throw new Error('数据位只能选择 5、6、7 或 8')
@@ -141,8 +156,8 @@ function explainRuntimeError(
   return new Error(`${action}失败：${message}`)
 }
 
-const openPorts = new Map<string, SerialPort>()
-const virtualSerialPorts = new WeakSet<SerialPort>()
+const openPorts = new Map<string, SerialPort | TcpSerialPort>()
+const virtualSerialPorts = new WeakSet<SerialPort | TcpSerialPort>()
 let mainWindow: BrowserWindow | null = null
 const dataWindows = new Map<string, BrowserWindow>()
 const writeQueues = new Map<string, Promise<void>>()
@@ -331,43 +346,62 @@ async function writeRawPort(path: string, data: Buffer): Promise<void> {
 
 async function openManagedPort(options: PortOptions): Promise<boolean> {
   validatePortOptions(options)
+  options = { ...options, path: normalizeSerialPortPath(options.path) }
+  const remote = isRemoteSerial(options)
   assertPortAvailable(options.path)
+  if (remote && openPorts.has(options.path)) throw new Error(`${options.path} 已经打开`)
   await closePort(options.path)
-  const listedPort = (await SerialPort.list().catch(() => [])).find(
+  const listedPort = (remote ? [] : await SerialPort.list().catch(() => [])).find(
     (port) => port.path === options.path
   )
-  let next: SerialPort
+  let next: SerialPort | TcpSerialPort
   try {
-    next = new SerialPort({ ...options, autoOpen: false })
-    await new Promise<void>((resolve, reject) =>
-      next.open((error) => (error ? reject(error) : resolve()))
-    )
+    next = remote
+      ? new TcpSerialPort(options.path)
+      : new SerialPort({ ...options, autoOpen: false })
   } catch (error) {
-    throw explainOpenError(error, options)
+    throw remote ? explainTcpError(error, options.path) : explainOpenError(error, options)
   }
   if (listedPort?.manufacturer === 'SerialFlow') virtualSerialPorts.add(next)
-  openPorts.set(options.path, next)
+  let opened = false
   next.on('data', (chunk: Buffer) => {
     queueReceivedData(options.path, chunk)
   })
   next.on('error', (error) =>
     emit('serial:error', {
       path: options.path,
-      message: explainRuntimeError(error, '串口通信', next.path).message
+      message: (remote
+        ? explainTcpError(error, next.path)
+        : explainRuntimeError(error, '串口通信', next.path)
+      ).message
     })
   )
   next.on('close', () => {
+    if (!opened) return
+    if (openPorts.has(options.path) && openPorts.get(options.path) !== next) return
+    flushReceiveBatch(options.path)
     const unexpected = openPorts.get(options.path) === next
     if (unexpected) {
       openPorts.delete(options.path)
       writeQueues.delete(options.path)
       emit('serial:error', {
         path: options.path,
-        message: `串口 ${next.path} 连接意外中断，请检查 USB 连接、供电和驱动状态`
+        message: remote
+          ? `远程串口 ${next.path} 连接已断开，请检查网络、ser2net 和远端设备后重新连接`
+          : `串口 ${next.path} 连接意外中断，请检查 USB 连接、供电和驱动状态`
       })
     }
     emit('serial:status', { path: options.path, open: false })
   })
+  try {
+    await new Promise<void>((resolve, reject) =>
+      next.open((error) => (error ? reject(error) : resolve()))
+    )
+  } catch (error) {
+    throw remote ? explainTcpError(error, options.path) : explainOpenError(error, options)
+  }
+  opened = true
+  openPorts.set(options.path, next)
   emit('serial:status', { open: true, path: options.path })
   return true
 }
@@ -384,20 +418,22 @@ function registerSerialHandlers(): void {
       enqueuePortOperation(async () => {
         if (request.transport === 'swd') return async () => {}
         const path = request.port
+        if (isTcpPath(path)) throw new Error('固件烧录仅支持本地串口，不支持 ser2net TCP 连接')
         assertPortAvailable(path)
         if (fileTransferManager?.isPortBusy(path))
           throw new Error('目标串口正在传输或接收文件，请先停止文件传输')
         firmwarePorts.add(path.toUpperCase())
         const port = openPorts.get(path)
-        const saved: PortOptions | undefined = port
-          ? {
-              path,
-              baudRate: port.baudRate,
-              dataBits: port.settings.dataBits ?? 8,
-              stopBits: port.settings.stopBits ?? 1,
-              parity: port.settings.parity ?? 'none'
-            }
-          : undefined
+        const saved: PortOptions | undefined =
+          port instanceof SerialPort
+            ? {
+                path,
+                baudRate: port.baudRate,
+                dataBits: port.settings.dataBits ?? 8,
+                stopBits: port.settings.stopBits ?? 1,
+                parity: port.settings.parity ?? 'none'
+              }
+            : undefined
         try {
           await closePort(path)
         } catch (error) {
@@ -803,12 +839,14 @@ function registerSerialHandlers(): void {
   )
   ipcMain.handle('serial:close', async (_event, path: string) =>
     enqueuePortOperation(() => {
+      path = normalizeSerialPortPath(path)
       assertPortAvailable(path)
       return closePort(path)
     })
   )
   ipcMain.handle('serial:write', async (_event, path: string, base64: string) => {
     if (!path) throw new Error('请选择发送串口')
+    path = normalizeSerialPortPath(path)
     assertPortAvailable(path)
     const originalPort = openPorts.get(path)
     if (typeof base64 !== 'string' || !base64) throw new Error('发送内容不能为空')
@@ -825,7 +863,9 @@ function registerSerialHandlers(): void {
         try {
           await writeSerialData(active, data, virtualSerialPorts.has(active))
         } catch (error) {
-          throw explainRuntimeError(error, '发送数据', active.path)
+          throw active instanceof TcpSerialPort
+            ? explainTcpError(error, active.path)
+            : explainRuntimeError(error, '发送数据', active.path)
         }
       })
     writeQueues.set(

@@ -1,4 +1,5 @@
 import { normalizeSerialPortPath } from '@common/serial-port'
+import { isRemoteSerial, parseTcpEndpoint } from '@common/remote-serial'
 import {
   interactionDisplayKey,
   loadInteractionDisplay,
@@ -375,6 +376,7 @@ function loadSerialConfigs(): SerialConfig[] {
       return applyGlobalFraming(
         saved.map((config, index) => ({
           ...config,
+          path: normalizeSerialPortPath(config.path),
           id: Number(config.id) || Date.now() + index,
           name: config.name?.trim() || `串口组 ${index + 1}`,
           framing: normalizeSerialFraming(config.framing),
@@ -748,7 +750,9 @@ function App(): React.JSX.Element {
     setPorts(list)
     setSerialConfigs((current) =>
       current.map((config, index) =>
-        index === 0 && !config.path && list[0]?.path ? { ...config, path: list[0].path } : config
+        index === 0 && !isRemoteSerial(config) && !config.path && list[0]?.path
+          ? { ...config, path: list[0].path }
+          : config
       )
     )
   }, [])
@@ -1286,24 +1290,36 @@ function App(): React.JSX.Element {
     if (connectionBusyRef.current) return
     connectionBusyRef.current = true
     setConnectionBusy(true)
-    const isOpen = openedPorts.has(config.path)
+    const path = normalizeSerialPortPath(config.path)
+    const remote = isRemoteSerial(config)
+    const isOpen = openedPorts.has(path)
     try {
-      if (isOpen) await window.api.closePort(config.path)
+      if (isOpen) await window.api.closePort(path)
       else {
-        if (!config.path) return showProblem('请选择串口；如果列表为空，请先点击刷新并检查设备连接')
-        if (openedPorts.has(config.path)) return showProblem(`${config.path} 已经打开`)
+        if (remote) parseTcpEndpoint(path)
+        if (!path) return showProblem('请选择串口；如果列表为空，请先点击刷新并检查设备连接')
+        if (
+          serialConfigs.some(
+            (item) => item.id !== config.id && normalizeSerialPortPath(item.path) === path
+          )
+        )
+          return showProblem(`${path} 已被其他配置使用，请使用已有配置或修改地址`)
+        updateSerialConfig(config.id, { path })
         await window.api.openPort({
-          path: config.path,
+          path,
+          transport: remote ? 'tcp' : 'serial',
           baudRate: config.baudRate,
           dataBits: config.dataBits,
           stopBits: config.stopBits,
           parity: config.parity
         })
         setMessage(
-          `已打开 ${config.path}（${config.baudRate} baud，${config.dataBits}${config.parity === 'none' ? 'N' : config.parity[0].toUpperCase()}${config.stopBits}）`
+          remote
+            ? `已连接 ${path}（串口参数由远端 ser2net 配置）`
+            : `已打开 ${path}（${config.baudRate} baud，${config.dataBits}${config.parity === 'none' ? 'N' : config.parity[0].toUpperCase()}${config.stopBits}）`
         )
       }
-      if (isOpen) setMessage(`已断开 ${config.path}`)
+      if (isOpen) setMessage(`已断开 ${path}`)
     } catch (error) {
       showError(error, isOpen ? '断开串口失败' : '打开串口失败')
     } finally {
@@ -1493,6 +1509,7 @@ function App(): React.JSX.Element {
           applyGlobalFraming(
             (project.serialConfigs as SerialConfig[]).map((config, index) => ({
               ...config,
+              path: normalizeSerialPortPath(config.path),
               id: Number(config.id) || Date.now() + index,
               name: config.name?.trim() || `串口组 ${index + 1}`,
               framing: normalizeSerialFraming(config.framing),

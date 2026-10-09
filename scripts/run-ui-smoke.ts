@@ -9,9 +9,11 @@ const suite =
     ? 'update-ui-smoke'
     : process.argv[2] === 'serial'
       ? 'serial-ui-performance'
-      : process.argv[2] === 'plot'
-        ? 'plot-ui-smoke'
-        : 'firmware-ui-smoke'
+      : process.argv[2] === 'remote'
+        ? 'remote-serial-ui-smoke'
+        : process.argv[2] === 'plot'
+          ? 'plot-ui-smoke'
+          : 'firmware-ui-smoke'
 const output = resolve(root, '.tmp', 'ui-smoke')
 await mkdir(output, { recursive: true })
 const result = await Bun.build({

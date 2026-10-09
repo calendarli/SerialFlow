@@ -5783,7 +5783,8 @@ footer > span:first-child {
   color: var(--muted);
   font-size: 15px;
 }
-.serial-profile select {
+.serial-profile select,
+.serial-profile .serial-remote-address {
   display: block;
   width: 100%;
   height: 31px;
@@ -5796,7 +5797,8 @@ footer > span:first-child {
   font-size: 16px;
   outline: 0;
 }
-.serial-profile select:disabled {
+.serial-profile select:disabled,
+.serial-profile .serial-remote-address:disabled {
   background: #f1f5f9;
   color: #8492a6;
 }
@@ -5812,6 +5814,13 @@ footer > span:first-child {
 }
 .serial-profile .grid-two {
   gap: 7px;
+}
+.serial-remote-hint {
+  margin: 4px 0 12px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 .serial-profile .grid-two label {
   margin-bottom: 8px;
