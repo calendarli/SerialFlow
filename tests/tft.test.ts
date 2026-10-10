@@ -46,6 +46,8 @@ class Screen extends EventEmitter {
     } else {
       const command = bytes.toString('latin1')
       this.commands.push(command)
+      if (command.startsWith('baud=') && this.baudRate === this.connectRate)
+        this.connectRate = Number(command.slice(5).split('\xff')[0])
       if (command.startsWith('print "mystop_yesABC"'))
         this.emit('data', Buffer.from('mystop_yesABC'))
       if (command.includes('connect') && this.baudRate === this.connectRate) {
@@ -80,6 +82,12 @@ test('TFT scans baud, parses split comok, switches baud and sends exact 4096 byt
   const progress: number[] = []
   await run(screen, data, undefined, (n) => progress.push(n))
   expect(screen.rates).toEqual([115200, 9600, 115200])
+  expect(screen.commands.findIndex((c) => c.startsWith('baud=115200'))).toBeLessThan(
+    screen.commands.findIndex((c) => c.startsWith('whmi-wris '))
+  )
+  expect(screen.commands.filter((c) => c === tftCommand('connect').toString('latin1')).length).toBe(
+    1
+  )
   expect(
     screen.commands.some(
       (command) => command === tftCommand('whmi-wris 8193,115200,1').toString('latin1')
@@ -98,6 +106,19 @@ test('TFT detection does not enter download and capacity rejection does not send
   screen.capacity = 1
   await expect(run(screen, Buffer.alloc(2))).rejects.toThrow('容量')
   expect(screen.blocks.length).toBe(0)
+})
+
+test('TFT refuses to enter download when the target baud cannot be verified', async () => {
+  const screen = new Screen()
+  screen.connectRate = 9600
+  const write = screen.write.bind(screen)
+  screen.write = (bytes, done) => {
+    if (bytes.toString('ascii').startsWith('baud=')) done()
+    else write(bytes, done)
+  }
+  await expect(run(screen, Buffer.alloc(1))).rejects.toThrow('高速联机验证')
+  expect(screen.downloading).toBe(false)
+  expect(screen.blocks).toEqual([])
 })
 
 test('TFT keeps detected 9600 baud and waits past a framed reply for delayed readiness', async () => {

@@ -429,6 +429,12 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel({
                   />
                   使用联机波特率下载
                 </label>
+                <button
+                  title="先验证 115200 波特率联机，再进入下载模式"
+                  onClick={() => patch({ tftUseDetectedBaud: false, baudRate: 115200 })}
+                >
+                  高速 115200
+                </button>
                 {request.tftUseDetectedBaud === false && (
                   <label>
                     下载波特率

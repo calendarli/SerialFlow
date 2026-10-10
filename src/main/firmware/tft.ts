@@ -160,20 +160,23 @@ export async function transferTft(
     )
     await exchange((done) => write(tftCommand('sleep=0'), done))
     await delay(100, undefined, { signal })
+    if (baudRate !== detectedBaud) {
+      // Verify the new speed before entering the upload bootloader.
+      log(`正在切换下载波特率：${detectedBaud} → ${baudRate}`)
+      await exchange((done) => write(tftCommand(`baud=${baudRate}`), done))
+      await delay(100, undefined, { signal })
+      await exchange((done) => port.update({ baudRate }, done))
+      await exchange(
+        (done) => write(tftCommand('connect'), done),
+        (bytes) => /comok [^\xff]+\xff\xff\xff/.test(bytes.toString('latin1')),
+        timeouts.ack,
+        `高速联机验证（${baudRate} baud）；失败后请重启屏幕再试`
+      )
+      log(`高速联机确认成功：${baudRate} baud`)
+    }
     log(`请求下载：whmi-wris ${data.length},${baudRate},1；等待下载许可 0x05`)
     await exchange(
-      (done) =>
-        write(tftCommand(`whmi-wris ${data.length},${baudRate},1`), (error) => {
-          if (error || failure) done(error || failure)
-          else if (baudRate === detectedBaud) done()
-          else {
-            try {
-              port.update({ baudRate }, done)
-            } catch (cause) {
-              done(cause as Error)
-            }
-          }
-        }),
+      (done) => write(tftCommand(`whmi-wris ${data.length},${baudRate},1`), done),
       (bytes) => reply(bytes) !== null,
       timeouts.ack,
       `等待下载许可 0x05（${baudRate} baud）`
