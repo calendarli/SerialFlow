@@ -23,7 +23,7 @@ SerialFlow 将多串口收发、可编程指令、实时曲线和固件烧录集
 | 实时分析     | 多通道曲线、采样值查看、PID 响应指标与调参建议                                     |
 | 独立数据窗口 | 按 HEX 模板提取字段，显示 HEX / DEC，支持编程换算、单位、符号、小数位和窗口置顶    |
 | Modbus RTU   | 保持寄存器读取与轮询、H06 / H10 写入、分组快捷指令拖拽排序、设备配置管理与批量写入 |
-| 文件与固件   | 串口文件传输、STM32 UART / Ymodem / ST-LINK 烧录、ESP32 单个或多个 BIN 烧录        |
+| 文件与固件   | 串口文件传输、STM32 UART / Ymodem / ST-LINK、ESP32 BIN、淘晶驰串口屏 TFT 烧录      |
 | 配置共享     | 导入 / 导出 `.serialflow` 工程、快捷指令、自动回复及 Modbus 配置                   |
 | 虚拟串口     | 在 Windows 上通过配套 UMDF 2 驱动管理本地虚拟串口对                                |
 
@@ -115,7 +115,9 @@ function process(data, context) {
 
 ### 固件烧录
 
-底部“固件烧录”页签支持 STM32 的系统 UART、Ymodem 和 ST-LINK / SWD，以及 ESP32 的单个或多个 BIN 烧录。STM32 系统 UART / ST-LINK 需单独安装 STM32CubeProgrammer；Ymodem 使用设备自带 Bootloader；ESP32 使用随包提供或手动指定的 esptool。
+底部“固件烧录”页签支持 STM32 的系统 UART、Ymodem 和 ST-LINK / SWD、ESP32 的单个或多个 BIN，以及淘晶驰串口屏的 TFT 文件下载。STM32 系统 UART / ST-LINK 需单独安装 STM32CubeProgrammer；Ymodem 使用设备自带 Bootloader；ESP32 使用随包提供或手动指定的 esptool。
+
+串口屏请选择“串口屏（TFT）”，选择与屏幕型号匹配的 `.tft` 文件及已打开串口。高级设置中的波特率为下载速度，默认 115200；联机时自动寻找设备波特率。支持联机检测、逐包确认进度和停止下载，无需外部烧录工具。当前采用完整文件下载，不支持官方软件的相同资源跳过；完成后需检查屏幕实际显示，真实设备兼容性尚待验证。
 
 烧录期间独占目标串口。工具准备、地址配置、串口恢复及硬件支持边界见 [固件烧录说明](docs/firmware-flashing.md)。
 

@@ -19,6 +19,8 @@ let finishFirmware: (() => void) | undefined
 const openedOptions: SerialOptions[] = []
 type SerialOptions = { path: string; baudRate: number }
 class FakeSerialPort extends EventEmitter {
+  static tftMode = false
+  private tftDownloading = false
   static ymodemMode = false
   static autoHandshake = true
   static latestYmodem: FakeSerialPort | null = null
@@ -61,6 +63,22 @@ class FakeSerialPort extends EventEmitter {
     this.writes.push(Buffer.from(data))
     setImmediate(() => {
       callback(null)
+      if (FakeSerialPort.tftMode) {
+        if (this.tftDownloading) this.emit('data', Buffer.from([5]))
+        else if (data.toString('latin1').includes('connect'))
+          this.emit(
+            'data',
+            Buffer.concat([
+              Buffer.from('comok 0,30517-0,TJC1612T118_011N,124,61744,DD27350109AC7872,4194304'),
+              Buffer.from([255, 255, 255])
+            ])
+          )
+        else if (data.toString('latin1').startsWith('whmi-wri')) {
+          this.tftDownloading = true
+          this.emit('data', Buffer.from([5]))
+        }
+        return
+      }
       if (!this.ymodem) return
       if (data[0] === 0x43) return
       let response: number[]
@@ -75,6 +93,10 @@ class FakeSerialPort extends EventEmitter {
     })
   }
   drain(callback: (error: Error | null) => void) {
+    setImmediate(() => callback(null))
+  }
+  update(options: { baudRate: number }, callback: (error: Error | null) => void) {
+    this.baudRate = options.baudRate
     setImmediate(() => callback(null))
   }
 }
@@ -111,12 +133,21 @@ BrowserWindow.prototype.show = function () {
   /* Keep test windows hidden. */
 }
 const fixture = path.join(profile, 'application.bin')
+const tftFixture = path.join(profile, 'screen.tft')
+fs.writeFileSync(tftFixture, Buffer.alloc(4097, 0x42))
 fs.writeFileSync(fixture, Buffer.from([1, 2, 3, 4]))
 const firmwareDialogPaths: Array<string | undefined> = []
 dialog.showOpenDialog = async (...args) => {
-  const options = args.at(-1) as { title?: string; defaultPath?: string }
+  const options = args.at(-1) as {
+    title?: string
+    defaultPath?: string
+    filters?: Array<{ extensions: string[] }>
+  }
   if (options.title === '选择烧录固件') firmwareDialogPaths.push(options.defaultPath)
-  return { canceled: false, filePaths: [fixture] }
+  return {
+    canceled: false,
+    filePaths: [options.filters?.[0]?.extensions.includes('tft') ? tftFixture : fixture]
+  }
 }
 const errors: string[] = []
 app.on('web-contents-created', (_event, contents) => {
@@ -353,6 +384,71 @@ app.whenReady().then(async () => {
     )
     await run(`window.api.closePort('COM991')`)
     FakeSerialPort.ymodemMode = false
+    FakeSerialPort.tftMode = true
+    await run(`window.api.openPort(${JSON.stringify(serialOptions)})`)
+    await run(
+      `(() => { const s = document.querySelector('[aria-label="芯片系列"]'); s.value = 'tft'; s.dispatchEvent(new Event('change', {bubbles:true})); })()`
+    )
+    await until(() => run(`document.querySelector('[aria-label="烧录串口"]').value === 'COM991'`))
+    assert(
+      await run(
+        `!document.querySelector('[aria-label="ESP32 型号"]') && !document.querySelector('.firmware-tool-path') && !document.querySelector('.firmware-tool-missing')`
+      )
+    )
+    assert(
+      await run(
+        `!document.querySelector('.firmware-options').textContent.includes('校验') && !document.querySelector('.firmware-options').textContent.includes('复位')`
+      )
+    )
+    await run(
+      `Array.from(document.querySelectorAll('.firmware-panel button')).find(b => b.textContent === '选择 TFT').click()`
+    )
+    await until(() =>
+      run(`document.querySelector('.firmware-file')?.textContent.includes('screen.tft')`)
+    )
+    assert(await run(`!document.querySelector('[aria-label$="写入地址"]')`))
+    await run(
+      `Array.from(document.querySelectorAll('.firmware-panel button')).find(b => b.textContent === '联机检测').click()`
+    )
+    await until(() =>
+      run(`window.api.getFirmwareState().then(s => s?.operation === 'detect' && !s.busy)`)
+    )
+    assert.equal(await run(`window.api.getFirmwareState().then(s => s.outcome)`), 'success')
+    await until(() =>
+      run(
+        `!Array.from(document.querySelectorAll('.firmware-panel button')).find(b => b.textContent === '开始烧录').disabled`
+      )
+    )
+    await run(
+      `Array.from(document.querySelectorAll('.firmware-panel button')).find(b => b.textContent === '开始烧录').click()`
+    )
+    await until(() =>
+      run(`window.api.getFirmwareState().then(s => s?.operation === 'flash' && !s.busy)`)
+    )
+    assert.equal(await run(`window.api.getFirmwareState().then(s => s.outcome)`), 'success')
+    assert.equal(await run(`window.api.getFirmwareState().then(s => s.transferredBytes)`), 4097)
+    await until(() =>
+      run(`document.querySelector('.firmware-status-title')?.textContent.includes('TFT 传输完成')`)
+    )
+    assert(
+      await run(
+        `document.querySelector('.firmware-status-meta')?.textContent.includes('4.0 KB / 4.0 KB')`
+      )
+    )
+    await until(() =>
+      run(
+        `document.querySelector('.firmware-status-success .firmware-progress-fill')?.style.width === '100%'`
+      )
+    )
+    await run(`document.querySelector('.firmware-scroll').scrollTop = 0`)
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    fs.writeFileSync(
+      path.join(root, '.tmp', 'ui-smoke', 'firmware-tft-complete.png'),
+      (await window.webContents.capturePage(undefined, { stayHidden: true })).toPNG()
+    )
+    assert.deepEqual(await run(`window.api.getOpenedPortPaths()`), ['COM991'])
+    await run(`window.api.closePort('COM991')`)
+    FakeSerialPort.tftMode = false
     for (const page of ['help', 'programming-manual']) {
       await run(`(() => { window.open(new URL('${page}/index.html', location.href).href); })()`)
       await until(() =>
@@ -391,7 +487,7 @@ app.whenReady().then(async () => {
     }
     assert.equal(errors.length, 0, errors.join('\n'))
     console.log(
-      'PASS: real Electron preload, STM32 Ymodem firmware UI/transfer, simulated serial exclusion/restoration, and both React manuals.'
+      'PASS: real Electron preload, STM32 Ymodem and TFT firmware UI/transfer, simulated serial exclusion/restoration, and both React manuals.'
     )
     clearTimeout(deadline)
     app.quit()

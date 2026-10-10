@@ -12,8 +12,15 @@ import type {
   FirmwareTraffic,
   FirmwareTool
 } from '@common/firmware'
-import { hexAddress, inspectFirmware, inspectYmodemFirmware, validateRequest } from './validation'
+import {
+  hexAddress,
+  inspectFirmware,
+  inspectYmodemFirmware,
+  inspectTftFirmware,
+  validateRequest
+} from './validation'
 import { sendYmodem, type YmodemPort } from './ymodem'
+import { transferTft, type TftPort } from './tft'
 
 type FirmwareProcess = import('node:events').EventEmitter &
   Pick<ChildProcess, 'pid' | 'stdout' | 'stderr' | 'kill'>
@@ -33,6 +40,7 @@ type ProcessRunner = {
 }
 
 type Hooks = {
+  openTft?: (request: FirmwareRequest) => Promise<{ port: TftPort; close: () => Promise<void> }>
   process?: ProcessRunner
   resources: string
   temp: string
@@ -61,6 +69,7 @@ type ListeningSession = {
 }
 
 export function flashCommands(request: FirmwareRequest, paths: string[]): Command[] {
+  if (request.family === 'tft') throw new Error('串口屏不使用外部烧录工具')
   if (request.transport === 'ymodem') throw new Error('Ymodem 不使用 STM32CubeProgrammer 命令')
   if (request.family === 'stm32') {
     const args = ['-c', request.transport === 'swd' ? 'port=SWD' : `port=${request.port}`]
@@ -543,6 +552,47 @@ export class FirmwareManager {
     let ymodemConnection: YmodemConnection | undefined
     const state = this.state!
     try {
+      if (request.family === 'tft') {
+        const data = operation === 'flash' ? await inspectTftFirmware(request) : null
+        if (this.cancelled) throw new Error('任务已停止')
+        if (data) {
+          state.totalBytes = data.length
+          state.transferredBytes = 0
+        }
+        release = await this.hooks.acquire(request)
+        if (this.cancelled) throw new Error('任务已停止')
+        const connection = await (this.hooks.openTft?.(request) ?? this.openYmodem(request))
+        ymodemConnection = connection
+        const controller = new AbortController()
+        this.abortYmodem = controller
+        try {
+          if (this.cancelled) controller.abort()
+          await transferTft(
+            connection.port,
+            data,
+            request.baudRate,
+            controller.signal,
+            (bytes) => {
+              state.transferredBytes = bytes
+              state.percent = Math.floor((bytes * 100) / data!.length)
+              this.publish()
+            },
+            (message) => {
+              this.log(message)
+              state.phase = message
+            }
+          )
+        } finally {
+          this.abortYmodem = null
+          await connection.close()
+          ymodemConnection = undefined
+        }
+        if (this.cancelled) throw new Error('任务已停止')
+        state.outcome = 'success'
+        state.phase = data ? 'TFT 传输完成，请检查屏幕显示' : '串口屏联机成功，详情见日志'
+        state.percent = data ? 100 : null
+        return
+      }
       if (request.transport === 'ymodem') {
         if (request.listenForC) {
           const listened = await this.takeListening(request)
@@ -715,7 +765,7 @@ export class FirmwareManager {
 
   private async openYmodem(
     request: FirmwareRequest
-  ): Promise<{ port: YmodemPort; close: () => Promise<void> }> {
+  ): Promise<{ port: TftPort; close: () => Promise<void> }> {
     const port = new SerialPort({
       path: request.port,
       baudRate: request.baudRate,

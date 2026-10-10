@@ -31,8 +31,9 @@ const defaults: FirmwareRequest = {
 function loadSettings(): { request: FirmwareRequest; tools: Record<FirmwareFamily, string> } {
   try {
     const saved = JSON.parse(localStorage.getItem(storageKey) || '{}')
-    const family = saved.family === 'esp32' ? 'esp32' : 'stm32'
+    const family = saved.family === 'tft' ? 'tft' : saved.family === 'esp32' ? 'esp32' : 'stm32'
     const tools = {
+      tft: '',
       stm32: typeof saved.tools?.stm32 === 'string' ? saved.tools.stm32 : '',
       esp32: typeof saved.tools?.esp32 === 'string' ? saved.tools.esp32 : ''
     }
@@ -50,17 +51,17 @@ function loadSettings(): { request: FirmwareRequest; tools: Record<FirmwareFamil
             ? saved.baudRate
             : 115200,
         chip: espChips.includes(saved.chip) ? saved.chip : 'auto',
-        verify: saved.transport === 'ymodem' ? false : saved.verify !== false,
-        reset: saved.transport === 'ymodem' ? false : saved.reset !== false,
+        verify: family === 'tft' || saved.transport === 'ymodem' ? false : saved.verify !== false,
+        reset: family === 'tft' || saved.transport === 'ymodem' ? false : saved.reset !== false,
         restorePort: saved.restorePort === true,
         listenForC: false,
-        manualBoot: saved.manualBoot === true,
+        manualBoot: family === 'esp32' && saved.manualBoot === true,
         connectMode: saved.connectMode === 'UR' ? 'UR' : 'NORMAL',
         toolPath: tools[family]
       }
     }
   } catch {
-    return { request: defaults, tools: { stm32: '', esp32: '' } }
+    return { request: defaults, tools: { stm32: '', esp32: '', tft: '' } }
   }
 }
 const errorText = (error: unknown): string =>
@@ -98,6 +99,8 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel({
   const busy = pending || Boolean(state?.busy)
   const serial = request.transport !== 'swd'
   const ymodem = request.transport === 'ymodem'
+  const tft = request.family === 'tft'
+  const native = ymodem || tft
   const listening = Boolean(listenState && listenState.status !== 'error')
   const stm = request.family === 'stm32'
   const patch = (values: Partial<FirmwareRequest>): void =>
@@ -184,7 +187,7 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel({
 
   useEffect(() => {
     const sequence = ++toolSequence.current
-    if (request.transport === 'ymodem') {
+    if (request.transport === 'ymodem' || request.family === 'tft') {
       setTool(null)
       return
     }
@@ -231,7 +234,17 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel({
 
   const changeFamily = (family: FirmwareFamily): void => {
     setTool(null)
-    patch({ family, transport: 'uart', files: [], toolPath: toolPaths[family], eraseAll: false })
+    patch({
+      family,
+      transport: 'uart',
+      files: [],
+      toolPath: toolPaths[family],
+      eraseAll: false,
+      verify: family !== 'tft',
+      reset: family === 'esp32',
+      manualBoot: false,
+      listenForC: false
+    })
     setError('')
   }
   const refresh = (): Promise<void> =>
@@ -249,7 +262,8 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel({
   const chooseFiles = (): Promise<void> =>
     perform(async () => {
       const files = await window.api.chooseFirmwareFiles(request.family, request.transport)
-      if (files.length) patch({ files: stm ? files : [...request.files, ...files].slice(0, 16) })
+      if (files.length)
+        patch({ files: stm || tft ? files : [...request.files, ...files].slice(0, 16) })
     })
   const chooseTool = (): Promise<void> =>
     perform(async () => {
@@ -284,9 +298,11 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel({
   const filesReady =
     request.files.length > 0 &&
     request.files.every((file) =>
-      ymodem
-        ? /\.bin$/i.test(file.path)
-        : /\.hex$/i.test(file.path) || /^(0x[0-9a-f]+|\d+)$/i.test(file.address.trim())
+      tft
+        ? /\.tft$/i.test(file.path)
+        : ymodem
+          ? /\.bin$/i.test(file.path)
+          : /\.hex$/i.test(file.path) || /^(0x[0-9a-f]+|\d+)$/i.test(file.address.trim())
     )
   const elapsed = state
     ? Math.max(0, Math.round(((state.finishedAt || now) - state.startedAt) / 1000))
@@ -338,6 +354,7 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel({
               >
                 <option value="stm32">STM32</option>
                 <option value="esp32">ESP32 系列</option>
+                <option value="tft">串口屏（TFT）</option>
               </select>
             </label>
             <label>
@@ -351,13 +368,13 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel({
                   patch({
                     transport,
                     files: [],
-                    verify: transport !== 'ymodem',
+                    verify: !tft && transport !== 'ymodem',
                     reset: false,
                     eraseAll: false
                   })
                 }}
               >
-                <option value="uart">UART（芯片内置）</option>
+                <option value="uart">{tft ? 'UART（串口屏）' : 'UART（芯片内置）'}</option>
                 {stm && <option value="ymodem">Ymodem（设备升级）</option>}
                 {stm && <option value="swd">ST-LINK / SWD</option>}
               </select>
@@ -400,7 +417,7 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel({
               </label>
             )}
             <button onClick={() => void refresh()}>刷新</button>
-            {!stm && (
+            {request.family === 'esp32' && (
               <label>
                 型号
                 <select
@@ -416,7 +433,9 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel({
                 </select>
               </label>
             )}
-            <button onClick={() => void chooseFiles()}>{stm ? '选择固件' : '添加 BIN'}</button>
+            <button onClick={() => void chooseFiles()}>
+              {tft ? '选择 TFT' : stm ? '选择固件' : '添加 BIN'}
+            </button>
             <button
               className="firmware-link"
               aria-expanded={advanced}
@@ -427,11 +446,13 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel({
           </div>
           {request.files.length === 0 ? (
             <p className="firmware-hint">
-              {stm
-                ? ymodem
-                  ? '请选择 BIN 固件；设备 Bootloader 决定写入地址。'
-                  : '请选择 HEX 或 BIN 固件，HEX 地址从文件读取。'
-                : '添加一个合并 BIN，或多个分区 BIN；请按构建产物填写每个文件的写入地址。'}
+              {tft
+                ? '请选择与屏幕型号匹配的 TFT 文件，无需填写地址。'
+                : stm
+                  ? ymodem
+                    ? '请选择 BIN 固件；设备 Bootloader 决定写入地址。'
+                    : '请选择 HEX 或 BIN 固件，HEX 地址从文件读取。'
+                  : '添加一个合并 BIN，或多个分区 BIN；请按构建产物填写每个文件的写入地址。'}
             </p>
           ) : (
             <div className="firmware-files">
@@ -440,7 +461,7 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel({
                   <span title={file.path}>
                     {file.name} <small>{(file.size / 1024).toFixed(1)} KB</small>
                   </span>
-                  {!ymodem && (
+                  {!native && (
                     <label>
                       地址
                       {stm && /\.hex$/i.test(file.path) ? (
@@ -500,7 +521,7 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel({
                     </select>
                   </label>
                 )}
-                {!stm && (
+                {request.family === 'esp32' && (
                   <label>
                     <input
                       type="checkbox"
@@ -510,7 +531,7 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel({
                     手动进入下载模式
                   </label>
                 )}
-                {!ymodem && (
+                {!native && (
                   <label>
                     <input
                       type="checkbox"
@@ -521,7 +542,7 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel({
                   </label>
                 )}
               </div>
-              {!ymodem && (
+              {!native && (
                 <div className="firmware-row firmware-tool-path">
                   <span title={tool?.path || request.toolPath}>
                     {request.toolPath || tool?.path || '自动查找工具'}
@@ -561,7 +582,7 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel({
                 监听 C 选口握手
               </label>
             )}
-            {!ymodem &&
+            {!native &&
               (stm ? (
                 <label>
                   <input
@@ -574,7 +595,7 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel({
               ) : (
                 <span>✓ 自动校验写入数据</span>
               ))}
-            {(!stm || !serial) && (
+            {!tft && (!stm || !serial) && (
               <label>
                 <input
                   type="checkbox"
@@ -595,7 +616,7 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel({
                 结束后恢复原串口连接
               </label>
             )}
-            {!ymodem && (
+            {!native && (
               <span className={tool?.available ? 'firmware-tool-ok' : 'firmware-tool-missing'}>
                 {tool
                   ? tool.available
@@ -607,13 +628,15 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel({
           </div>
         </fieldset>
         <p className="firmware-hint">
-          {stm
-            ? ymodem
-              ? '先让设备自带 Bootloader 进入 Ymodem 接收状态；仅发送 BIN，须收到接收端 C 握手和各阶段确认。传输成功不等于已独立校验 Flash。'
-              : serial
-                ? '按芯片手册设置 BOOT 并复位进入系统 Bootloader；烧录完成后恢复 BOOT 配置并手动复位。'
-                : '连接 SWDIO、SWCLK、GND 和目标电压参考；复位下连接还需要 NRST。'
-            : '支持 DTR/RTS 的开发板可自动下载；否则勾选手动模式，按 BOOT/RESET 进入下载状态。'}
+          {tft
+            ? '淘晶驰串口屏：自动联机后以设定波特率完整下载 TFT，不跳过相同资源。完成后请检查屏幕显示。'
+            : stm
+              ? ymodem
+                ? '先让设备自带 Bootloader 进入 Ymodem 接收状态；仅发送 BIN，须收到接收端 C 握手和各阶段确认。传输成功不等于已独立校验 Flash。'
+                : serial
+                  ? '按芯片手册设置 BOOT 并复位进入系统 Bootloader；烧录完成后恢复 BOOT 配置并手动复位。'
+                  : '连接 SWDIO、SWCLK、GND 和目标电压参考；复位下连接还需要 NRST。'
+              : '支持 DTR/RTS 的开发板可自动下载；否则勾选手动模式，按 BOOT/RESET 进入下载状态。'}
           {serial && ' 烧录时独占所选串口，自动发送任务不会自动恢复。'}
         </p>
         {showLogs && (
@@ -700,10 +723,10 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel({
             <>
               {!ymodem && (
                 <button
-                  disabled={busy || !targetReady || !tool?.available}
+                  disabled={busy || !targetReady || (!tft && !tool?.available)}
                   onClick={() => void start('detect')}
                 >
-                  检测芯片
+                  {tft ? '联机检测' : '检测芯片'}
                 </button>
               )}
               <button
@@ -713,7 +736,7 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel({
                   !targetReady ||
                   !filesReady ||
                   (ymodem && request.listenForC && listenState?.status !== 'ready') ||
-                  (!ymodem && !tool?.available)
+                  (!native && !tool?.available)
                 }
                 onClick={() => void start('flash')}
               >

@@ -61,12 +61,19 @@ export function parseIntelHex(text: string): AddressRange[] {
 export function validateRequest(request: FirmwareRequest, flash: boolean): void {
   if (
     !request ||
-    !['stm32', 'esp32'].includes(request.family) ||
+    !['stm32', 'esp32', 'tft'].includes(request.family) ||
     !['uart', 'swd', 'ymodem'].includes(request.transport)
   )
     throw new Error('无效的芯片或连接方式')
   if (request.family === 'esp32' && request.transport !== 'uart')
     throw new Error('ESP32 请使用串口下载')
+  if (request.family === 'tft') {
+    if (request.transport !== 'uart') throw new Error('串口屏请使用 UART 下载')
+    if (request.verify || request.reset || request.eraseAll || request.manualBoot)
+      throw new Error('串口屏由设备控制校验与重启，不支持芯片烧录选项')
+    if (flash && (request.files?.length !== 1 || !/\.tft$/i.test(request.files[0]?.path)))
+      throw new Error('串口屏每次请选择一个 TFT 文件')
+  }
   if (request.transport === 'ymodem' && (request.verify || request.eraseAll || request.reset))
     throw new Error('Ymodem 接收端自行控制擦除、校验与复位，请关闭这些选项')
   if (
@@ -115,6 +122,19 @@ export async function inspectYmodemFirmware(request: FirmwareRequest): Promise<B
   const info = await stat(file.path)
   if (!info.isFile() || !info.size || info.size > 128 * 1024 * 1024)
     throw new Error('Ymodem 固件为空或超过 128 MB')
+  const data = await readFile(file.path)
+  if (data.length !== info.size) throw new Error('固件文件已变化，请重新选择')
+  return data
+}
+
+export async function inspectTftFirmware(request: FirmwareRequest): Promise<Buffer> {
+  validateRequest(request, true)
+  if (request.family !== 'tft') throw new Error('请选择串口屏')
+  const file = request.files[0]
+  if (!file || !isAbsolute(file.path)) throw new Error('固件路径无效')
+  const info = await stat(file.path)
+  if (!info.isFile() || !info.size || info.size > 128 * 1024 * 1024)
+    throw new Error('TFT 文件为空或超过 128 MB')
   const data = await readFile(file.path)
   if (data.length !== info.size) throw new Error('固件文件已变化，请重新选择')
   return data

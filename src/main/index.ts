@@ -469,10 +469,11 @@ function registerSerialHandlers(): void {
   ipcMain.handle(
     'firmware:chooseFiles',
     async (_event, family: FirmwareFamily, transport: FirmwareRequest['transport']) => {
-      if (!['stm32', 'esp32'].includes(family)) throw new Error('无效芯片系列')
+      if (!['stm32', 'esp32', 'tft'].includes(family)) throw new Error('无效芯片系列')
       if (
         !['uart', 'swd', 'ymodem'].includes(transport) ||
-        (transport === 'ymodem' && family !== 'stm32')
+        (transport === 'ymodem' && family !== 'stm32') ||
+        (family === 'tft' && transport !== 'uart')
       )
         throw new Error('无效的烧录方式')
       const savedDirectory = readConfigDialogState().firmwareDirectory
@@ -486,7 +487,12 @@ function registerSerialHandlers(): void {
         filters: [
           {
             name: '固件',
-            extensions: family === 'stm32' && transport !== 'ymodem' ? ['hex', 'bin'] : ['bin']
+            extensions:
+              family === 'tft'
+                ? ['tft']
+                : family === 'stm32' && transport !== 'ymodem'
+                  ? ['hex', 'bin']
+                  : ['bin']
           }
         ]
       })
