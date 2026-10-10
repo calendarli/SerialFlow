@@ -224,3 +224,40 @@ test('TFT manager completes, fails or cancels with exclusive port cleanup and re
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('TFT detection restores the existing port even with post-flash restoration disabled', async () => {
+  for (const mode of ['success', 'error', 'cancel', 'restore-error']) {
+    let restored = false
+    const screen = new Screen()
+    const request = { ...base, restorePort: false }
+    const manager = new FirmwareManager({
+      resources: '',
+      temp: '',
+      emit: () => {},
+      acquire: async (effective) => {
+        expect(effective.restorePort).toBe(true)
+        return async () => {
+          restored = true
+          if (mode === 'restore-error') throw new Error('restore failed')
+        }
+      },
+      openTft: async () => {
+        if (mode === 'error') throw new Error('open failed')
+        if (mode === 'cancel') manager.cancel(manager.snapshot()!.id)
+        return { port: screen, close: async () => {} }
+      }
+    })
+    manager.start(request, 'detect')
+    const deadline = Date.now() + 2000
+    while (manager.snapshot()?.busy && Date.now() < deadline)
+      await new Promise((resolve) => setTimeout(resolve, 1))
+    expect(manager.snapshot()?.busy).toBe(false)
+    expect(restored).toBe(true)
+    expect(request.restorePort).toBe(false)
+    expect(manager.snapshot()?.outcome).toBe(
+      mode === 'error' ? 'error' : mode === 'cancel' ? 'cancelled' : 'success'
+    )
+    if (mode === 'restore-error')
+      expect(manager.snapshot()?.restoreWarning).toContain('restore failed')
+  }
+})

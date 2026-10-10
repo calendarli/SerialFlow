@@ -559,7 +559,11 @@ export class FirmwareManager {
           state.totalBytes = data.length
           state.transferredBytes = 0
         }
-        release = await this.hooks.acquire(request)
+        // Detection is preparatory: keep the previously opened target available
+        // for the subsequent flash, regardless of the post-flash preference.
+        release = await this.hooks.acquire(
+          operation === 'detect' ? { ...request, restorePort: true } : request
+        )
         if (this.cancelled) throw new Error('任务已停止')
         const connection = await (this.hooks.openTft?.(request) ?? this.openYmodem(request))
         ymodemConnection = connection

@@ -408,12 +408,22 @@ app.whenReady().then(async () => {
     )
     assert(await run(`!document.querySelector('[aria-label$="写入地址"]')`))
     await run(
+      `(() => { const checkbox = Array.from(document.querySelectorAll('.firmware-options label')).find(l => l.textContent.includes('结束后恢复原串口连接')).querySelector('input'); if (checkbox.checked) checkbox.click(); })()`
+    )
+    await run(
       `Array.from(document.querySelectorAll('.firmware-panel button')).find(b => b.textContent === '联机检测').click()`
     )
     await until(() =>
       run(`window.api.getFirmwareState().then(s => s?.operation === 'detect' && !s.busy)`)
     )
     assert.equal(await run(`window.api.getFirmwareState().then(s => s.outcome)`), 'success')
+    assert.deepEqual(await run(`window.api.getOpenedPortPaths()`), ['COM991'])
+    assert.equal(openedOptions.at(-1)!.baudRate, 57600)
+    assert(
+      await run(
+        `!Array.from(document.querySelectorAll('.firmware-options label')).find(l => l.textContent.includes('结束后恢复原串口连接')).querySelector('input').checked`
+      )
+    )
     await until(() =>
       run(
         `!Array.from(document.querySelectorAll('.firmware-panel button')).find(b => b.textContent === '开始烧录').disabled`
@@ -446,8 +456,7 @@ app.whenReady().then(async () => {
       path.join(root, '.tmp', 'ui-smoke', 'firmware-tft-complete.png'),
       (await window.webContents.capturePage(undefined, { stayHidden: true })).toPNG()
     )
-    assert.deepEqual(await run(`window.api.getOpenedPortPaths()`), ['COM991'])
-    await run(`window.api.closePort('COM991')`)
+    assert.deepEqual(await run(`window.api.getOpenedPortPaths()`), [])
     FakeSerialPort.tftMode = false
     for (const page of ['help', 'programming-manual']) {
       await run(`(() => { window.open(new URL('${page}/index.html', location.href).href); })()`)
