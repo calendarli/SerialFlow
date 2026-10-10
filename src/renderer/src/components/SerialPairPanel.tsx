@@ -1,68 +1,18 @@
-import { useCallback, useEffect, useState } from 'react'
+import type { SerialPairsModel } from '../use-serial-pairs'
 
-type Status = {
-  installed: boolean
-  pairs: string[]
-  occupiedPorts: string[]
-  availablePorts: string[]
-  commandPath?: string
-  certificateAvailable: boolean
-  certificateInstalled: boolean
-  message?: string
-}
-
-export function SerialPairPanel(): React.JSX.Element {
-  const [first, setFirst] = useState('COM10')
-  const [second, setSecond] = useState('COM11')
-  const [status, setStatus] = useState<Status | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [message, setMessage] = useState('正在检测 SerialFlow 虚拟串口驱动…')
-
-  const refresh = useCallback(async (): Promise<void> => {
-    try {
-      const next = await window.api.getVirtualPortStatus()
-      setStatus(next)
-      setFirst(next.availablePorts[0] || '')
-      setSecond(next.availablePorts[1] || '')
-      setMessage(
-        next.installed ? next.message || 'SerialFlow 驱动包已就绪' : '未检测到 SerialFlow 驱动包'
-      )
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error))
-    }
-  }, [])
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => void refresh(), 0)
-    return () => window.clearTimeout(timer)
-  }, [refresh])
-
-  const createPair = async (): Promise<void> => {
-    setBusy(true)
-    try {
-      const result = await window.api.createVirtualPortPair(first, second)
-      setMessage(`已创建 ${result.first} ↔ ${result.second}`)
-      await refresh()
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const installCertificate = async (): Promise<void> => {
-    setBusy(true)
-    try {
-      const result = await window.api.installVirtualPortCertificate()
-      setMessage(result)
-      await refresh()
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error))
-    } finally {
-      setBusy(false)
-    }
-  }
-
+export function SerialPairPanel({ model }: { model: SerialPairsModel }): React.JSX.Element {
+  const {
+    first,
+    setFirst,
+    second,
+    setSecond,
+    status,
+    busy,
+    message,
+    refresh,
+    createPair,
+    installCertificate
+  } = model
   const canCreate =
     Boolean(status?.installed) &&
     Boolean(first && second) &&
@@ -79,7 +29,9 @@ export function SerialPairPanel(): React.JSX.Element {
           <strong>虚拟串口对</strong>
           <span>使用 SerialFlow 自有 UMDF 2 驱动连接两个本地 COM 端口</span>
         </div>
-        <button onClick={() => void refresh()}>刷新状态</button>
+        <button disabled={busy} onClick={() => void refresh()}>
+          刷新状态
+        </button>
       </header>
 
       <div className={`serial-pair-status ${status?.installed ? 'ready' : ''}`}>
@@ -97,7 +49,11 @@ export function SerialPairPanel(): React.JSX.Element {
         <div className="serial-pair-form">
           <label>
             端口 A
-            <select value={first} onChange={(event) => setFirst(event.target.value)}>
+            <select
+              value={first}
+              disabled={busy}
+              onChange={(event) => setFirst(event.target.value)}
+            >
               {portOptions.map((port) => (
                 <option
                   key={port}
@@ -114,7 +70,11 @@ export function SerialPairPanel(): React.JSX.Element {
           <b>↔</b>
           <label>
             端口 B
-            <select value={second} onChange={(event) => setSecond(event.target.value)}>
+            <select
+              value={second}
+              disabled={busy}
+              onChange={(event) => setSecond(event.target.value)}
+            >
               {portOptions.map((port) => (
                 <option
                   key={port}
@@ -171,39 +131,6 @@ export function SerialPairPanel(): React.JSX.Element {
           本应用不会自动关闭 Secure Boot 或修改系统测试模式。
         </p>
       </div>
-
-      {Boolean(status?.pairs.length) && (
-        <div className="serial-pair-card">
-          <h2>SerialFlow 当前串口对</h2>
-          <div className="serial-pair-list">
-            {status!.pairs.map((pair) => {
-              const [a, b] = pair.split(' ↔ ')
-              return (
-                <div key={pair}>
-                  <strong>{pair}</strong>
-                  <button
-                    disabled={busy || b === '等待对端'}
-                    onClick={async () => {
-                      setBusy(true)
-                      try {
-                        await window.api.removeVirtualPortPair(a, b)
-                        setMessage(`已删除 ${pair}`)
-                        await refresh()
-                      } catch (error) {
-                        setMessage(error instanceof Error ? error.message : String(error))
-                      } finally {
-                        setBusy(false)
-                      }
-                    }}
-                  >
-                    删除
-                  </button>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
     </section>
   )
 }

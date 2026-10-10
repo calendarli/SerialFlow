@@ -6,6 +6,9 @@ import assert from 'node:assert/strict'
 import NodeModule, { createRequire } from 'node:module'
 import { checkModbusPresets } from './modbus-presets-ui'
 import { checkSerialCommandDrag } from './serial-command-drag-ui'
+import { checkReceiveFraming } from './receive-framing-ui'
+import { checkDataWindowPlot } from './data-window-plot-ui'
+import { checkSerialPairs } from './serial-pairs-ui'
 
 const root = process.cwd()
 const moduleRequire = createRequire(path.join(root, 'package.json'))
@@ -179,7 +182,9 @@ app.whenReady().then(async () => {
     dataWindow.webContents.send('serial:status', { path: 'COM991', open: false })
     await until(() => dataRun('document.body.textContent.includes("等待匹配数据")'))
     console.log('Data window: AD to gf, saved configuration, script timeout and disconnect passed')
+    await checkDataWindowPlot(window, dataWindow)
     dataWindow.destroy()
+    await checkReceiveFraming(window)
     await checkSerialCommandDrag(window)
     await checkModbusPresets(window)
     assert(errors.length === 0, errors.join('\n'))
@@ -187,6 +192,7 @@ app.whenReady().then(async () => {
       path.join(root, '.tmp/ui-smoke/modbus-presets.png'),
       (await window.webContents.capturePage()).toPNG()
     )
+    await checkSerialPairs(window)
     clearTimeout(deadline)
     app.exit(0)
   } catch (error) {

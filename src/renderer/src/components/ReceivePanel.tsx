@@ -1,16 +1,21 @@
+import { ReceiveFraming } from './ReceiveFraming'
+import type { GlobalSerialFraming } from '../receive-framing-settings'
 import { ClearActionIcon } from './ClearActionIcon'
 import { InteractionSettings } from './InteractionSettings'
 import type { InteractionDisplay } from '../interaction-settings'
 import { Clock3, Pause, ChevronDown, ChevronRight } from 'lucide-react'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import type { InteractionEntry } from '../types'
+import type { InteractionEntry, SerialConfig } from '../types'
 import { formatFirmwareTraffic, isReadableFirmwareTraffic } from '../firmware-traffic-display'
 
 type SearchDirection = 'up' | 'down' | null
 type ContextMenu = { x: number; y: number; entry: InteractionEntry | null }
 
 type Props = {
+  configs: SerialConfig[]
+  onFramingChange: (patch: Partial<GlobalSerialFraming>) => void
+  onFixedLengthChange: (id: number, length: number) => void
   display: InteractionDisplay
   onDisplayChange: (value: InteractionDisplay) => void
   entries: InteractionEntry[]
@@ -64,7 +69,8 @@ const InteractionRow = memo(function InteractionRow({
         {entry.time && <time>{entry.time}</time>}
         <span>{entry.bytes} B</span>
       </div>
-      <pre>{text || ' '}</pre>
+      {/* Normalize line endings only for layout; copying and protocol data retain the original text. */}
+      <pre>{text.replace(/\r\n?/g, '\n') || ' '}</pre>
     </div>
   )
 })
@@ -91,6 +97,7 @@ export function ReceivePanel(props: Props): React.JSX.Element {
   )
   const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null)
   const [menu, setMenu] = useState<ContextMenu | null>(null)
+  const [framingExpanded, setFramingExpanded] = useState(false)
   const [autoPauseExpanded, setAutoPauseExpanded] = useState(
     () => localStorage.getItem('serialflow.autoPauseExpanded') !== 'false'
   )
@@ -113,7 +120,7 @@ export function ReceivePanel(props: Props): React.JSX.Element {
       ),
     [visibleEntries, props.display, props.fontSize]
   )
-  const virtualizer = useVirtualizer({
+  const virtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
     count: visibleEntries.length,
     getScrollElement,
     getItemKey,
@@ -121,13 +128,33 @@ export function ReceivePanel(props: Props): React.JSX.Element {
     overscan: 14
   })
   const lastEntryId = visibleEntries[visibleEntries.length - 1]?.id
+  const totalSize = virtualizer.getTotalSize()
 
-  useEffect(() => virtualizer.measure(), [props.fontSize, props.display, props.rxHex, virtualizer])
+  useLayoutEffect(() => {
+    virtualizer.measure()
+    // Rebuild offsets before resizeItem compares against the cleared cache.
+    virtualizer.getTotalSize()
+    // Reset offscreen estimates, then immediately restore mounted row sizes.
+    // Unchanged elements may not emit another ResizeObserver notification.
+    for (const element of virtualizer.elementsCache.values()) {
+      virtualizer.resizeItem(Number(element.dataset.index), element.offsetHeight)
+    }
+  }, [props.fontSize, props.display, props.rxHex, virtualizer])
+
+  useLayoutEffect(() => {
+    // The traffic cache evicts old records; bound the new measurement cache too.
+    // Prune in batches, and only remove keys absent from the retained history.
+    if (virtualizer.itemSizeCache.size <= visibleEntries.length + 256) return
+    const retained = new Set(visibleEntries.map((entry) => entry.id))
+    for (const key of virtualizer.itemSizeCache.keys()) {
+      if (typeof key !== 'number' || !retained.has(key)) virtualizer.itemSizeCache.delete(key)
+    }
+  }, [visibleEntries, virtualizer])
 
   useLayoutEffect(() => {
     if (!scrollElement || !visibleEntries.length || !followTailRef.current) return
     scrollElement.scrollTop = scrollElement.scrollHeight
-  }, [lastEntryId, visibleEntries.length, scrollElement])
+  }, [lastEntryId, visibleEntries.length, scrollElement, totalSize])
 
   useEffect(() => {
     const closeMenu = (): void => setMenu(null)
@@ -255,6 +282,17 @@ export function ReceivePanel(props: Props): React.JSX.Element {
             条件暂停
             {props.autoPauseEnabled && <span className="auto-pause-enabled">已启用</span>}
           </button>
+          <button
+            type="button"
+            className="auto-pause-disclosure"
+            aria-expanded={framingExpanded}
+            aria-controls="receive-framing-settings"
+            title={`${framingExpanded ? '收起' : '展开'}接收分帧设置`}
+            onClick={() => setFramingExpanded((current) => !current)}
+          >
+            {framingExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            接收分帧
+          </button>
         </div>
         <div className="head-tools">
           <div className="receive-display-toggles" role="group" aria-label="接收显示选项">
@@ -310,6 +348,12 @@ export function ReceivePanel(props: Props): React.JSX.Element {
           </div>
         </div>
       </div>
+      <ReceiveFraming
+        expanded={framingExpanded}
+        configs={props.configs}
+        onChange={props.onFramingChange}
+        onFixedLengthChange={props.onFixedLengthChange}
+      />
       {autoPauseExpanded && (
         <div className="auto-pause-bar" id="auto-pause-settings">
           <label className="head-check">
@@ -451,7 +495,7 @@ export function ReceivePanel(props: Props): React.JSX.Element {
         }
       >
         {visibleEntries.length ? (
-          <div className="interaction-virtual-space" style={{ height: virtualizer.getTotalSize() }}>
+          <div className="interaction-virtual-space" style={{ height: totalSize }}>
             {virtualizer.getVirtualItems().map((item) => {
               const entry = visibleEntries[item.index]
               return (
@@ -459,9 +503,9 @@ export function ReceivePanel(props: Props): React.JSX.Element {
                   className="interaction-virtual-row"
                   key={item.key}
                   data-index={item.index}
+                  ref={virtualizer.measureElement}
                   style={{
                     transform: `translateY(${item.start}px)`,
-                    height: item.size,
                     fontSize: props.display[entry.direction].size ?? props.fontSize
                   }}
                 >

@@ -21,6 +21,7 @@ export default function Manual(): React.JSX.Element {
             <a href="#layout">界面布局</a>
             <a href="#start">快速开始</a>
             <a href="#serial">串口配置</a>
+            <a href="#remote-serial">ser2net 远程串口</a>
             <a href="#interaction">数据交互</a>
             <a href="#plot">实时曲线</a>
             <a href="#send">数据发送</a>
@@ -98,7 +99,7 @@ export default function Manual(): React.JSX.Element {
             </div>
           </article>
 
-          <article id="serial" data-title="串口配置 多串口 波特率 分帧 打开 关闭">
+          <article id="serial" data-title="串口配置 多串口 波特率 打开 关闭">
             <h2>多串口配置</h2>
             <h3>端口列表与状态</h3>
             <p>
@@ -109,7 +110,52 @@ export default function Manual(): React.JSX.Element {
             <p>
               波特率、数据位、停止位和校验位必须与设备一致。端口打开后参数会锁定；如需修改，请先关闭该串口。
             </p>
+          </article>
+
+          <article id="remote-serial" data-title="ser2net 远程串口 TCP 网络 无GUI SSH RFC2217">
+            <h2>ser2net 远程串口</h2>
+            <p>
+              在无 GUI 的 Linux 设备上运行 ser2net，将物理串口转发为原始 TCP
+              端口。在本机串口配置中选择“ser2net TCP（远程串口）”，输入{' '}
+              <code>tcp://192.168.1.50:2000</code> 并连接。本机无需连接物理串口。
+            </p>
+            <pre>
+              <code>{`connection: &serialflow_uart0
+  accepter: tcp,192.168.1.50,2000
+  connector: serialdev,/dev/ttyUSB0,115200n81,local
+  timeout: 0
+  options:
+    max-connections: 1`}</code>
+            </pre>
+            <p>
+              示例适用于 ser2net 4.x 的 version 1 YAML。替换服务器 IP、串口路径和参数，并重启
+              ser2net。发送区选择 TCP 端点后，可使用
+              HEX/文本收发、快捷指令、自动回复和曲线；网络会拆分或合并数据，请按设备协议设置接收分帧。
+            </p>
+            <div className="warn">
+              波特率、校验和流控由远端 ser2net 配置。当前仅支持原始 TCP，不支持 Telnet/RFC2217
+              协商、DTR/RTS 控制或远程固件烧录。不要配置 banner、openstr 或 closestr 插入额外数据。
+            </div>
+            <p>
+              原始 TCP 没有认证和加密，请在可信网络使用，跨网络可通过 SSH 隧道或 VPN
+              连接。检测到连接中断后请检查网络与 ser2net
+              日志，再手动重新连接。配置自动保存在本机，并随工程导入导出。
+            </p>
+            <p>
+              连接被拒绝时检查监听地址和端口；连接后立即断开时检查远端串口路径、访问权限及占用。完整安装、配置和
+              SSH 隧道示例见项目 README 中的“ser2net 使用教程”。
+            </p>
+          </article>
+
+          <article
+            id="interaction"
+            data-title="数据交互 接收 分帧 HEX 时间戳 暂停 搜索 清空 缓存 条件暂停 设置 字体 编码 GBK RX TX"
+          >
+            <h2>数据交互</h2>
             <h3>接收分帧</h3>
+            <p>
+              点击标题栏中“条件暂停”右侧的“接收分帧”展开设置。所有串口共用分帧方式、分隔符、帧头帧尾和空闲时间；只有固定长度按串口分别设置。修改即时生效，并随工程导入导出。旧配置和工程以第一个串口的规则作为全局规则，各串口固定长度保持不变。
+            </p>
             <ul>
               <li>
                 <strong>原始数据块：</strong>按系统收到的数据块直接处理，适合简单观察。
@@ -130,13 +176,7 @@ export default function Manual(): React.JSX.Element {
             <div className="warn">
               分帧会影响显示、条件暂停、自动回复和曲线解析。协议有明确帧边界时，建议选择对应方式。
             </div>
-          </article>
-
-          <article
-            id="interaction"
-            data-title="数据交互 接收 HEX 时间戳 暂停 搜索 清空 缓存 条件暂停 设置 字体 编码 GBK RX TX"
-          >
-            <h2>数据交互</h2>
+            <h3>显示控制</h3>
             <ul>
               <li>
                 <strong>接收 HEX：</strong>以十六进制字节显示接收数据；关闭时按文本显示。
@@ -249,6 +289,12 @@ export default function Manual(): React.JSX.Element {
               窗口。每个窗口默认置顶，也可点击图钉取消置顶。串口在主窗口打开；各数据窗口独立选择接收串口、配置匹配模板并显示最新匹配结果。
             </p>
             <ul>
+              <li>
+                勾选“显示到曲线图”，可选择 DEC 或 HEX。DEC 使用字段的小数位缩放，HEX
+                使用未缩放的整数，两者均保留有符号设置；例如有符号 FF 85、小数位 2，DEC 绘制
+                -1.23，HEX 绘制 -123。坐标轴仍显示十进制数值。选择随窗口配置保存，旧配置默认
+                DEC；编程模式绘制程序返回的换算结果，不使用此选择。
+              </li>
               <li>固定内容使用 HEX 字节，例如 AA 02；?? 表示任意一个字节，不显示。</li>
               <li>
                 &#123;名称:字节数&#125; 表示提取并显示该字段，例如 AA 02 &#123;数据:4&#125; BB 收到
@@ -310,8 +356,10 @@ export default function Manual(): React.JSX.Element {
           <article id="pairs" data-title="虚拟串口对 创建 删除 驱动 UAC">
             <h2>虚拟串口对</h2>
             <p>
-              用于创建两个互相连通的虚拟 COM
-              端口，适合联调两个串口程序。选择两个未占用端口号后创建；删除时选择现有端口对。
+              用于创建两个互相连通的虚拟 COM 端口，适合联调两个串口程序。左侧 TAB
+              列表显示已创建的串口对，可刷新状态或点击对应条目的删除按钮；侧栏支持折叠和拖拽调宽，与其他
+              TAB
+              一致。右侧选择两个未占用端口号后创建，创建和删除会自动刷新列表；端点不完整时禁用删除。
             </p>
             <div className="warn">
               安装证书、创建和删除虚拟串口需要 Windows

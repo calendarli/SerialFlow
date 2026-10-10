@@ -21,6 +21,7 @@ type Props = {
   enabledRuleCount: number
   onTabChange: (tab: Tab) => void
   serialContent: ReactNode
+  pairsContent: ReactNode
   commandsContent: ReactNode
   rulesContent: ReactNode
   aboutContent: ReactNode
@@ -41,7 +42,7 @@ function initialWidth(): number {
 }
 
 export function Sidebar(props: Props): React.JSX.Element {
-  const fullPage = ['modbus', 'pairs'].includes(props.activeTab)
+  const fullPage = props.activeTab === 'modbus'
   const [width, setWidth] = useState(initialWidth)
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem(collapsedStorageKey) === 'true'
@@ -265,11 +266,13 @@ export function Sidebar(props: Props): React.JSX.Element {
             <div className="side-page">
               {props.activeTab === 'serial'
                 ? props.serialContent
-                : props.activeTab === 'commands'
-                  ? props.commandsContent
-                  : props.activeTab === 'rules'
-                    ? props.rulesContent
-                    : props.aboutContent}
+                : props.activeTab === 'pairs'
+                  ? props.pairsContent
+                  : props.activeTab === 'commands'
+                    ? props.commandsContent
+                    : props.activeTab === 'rules'
+                      ? props.rulesContent
+                      : props.aboutContent}
             </div>
           )}
           <div

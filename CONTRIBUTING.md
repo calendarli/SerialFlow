@@ -35,6 +35,8 @@ bun run postinstall
 
 ## 项目结构
 
+ser2net 远程串口使用 `src/main/tcp-serial-port.ts` 的原始 TCP 连接，地址校验和规范化位于 `src/common/remote-serial.ts`。与本地串口共用 IPC、写入队列和接收处理；串口参数在服务端配置。修改后运行 `bun test tests/remote-serial.test.ts tests/serial-write.test.ts tests/serial-protocols.test.ts`，构建后执行 `bun run test:ui:remote`。界面回归使用真实本机 TCP 服务及 Electron IPC，不需要串口硬件；真实 ser2net + UART 仍需单独验收。使用说明见 [ser2net 教程](docs/ser2net.md)。
+
 Modbus 设备预设的数据校验、编码与顺序执行位于 `src/renderer/src/modbus-presets.ts`，
 界面位于 `components/ModbusPresets.tsx`，复用 `ModbusPanel` 的 RTU 客户端。
 侧栏内容区最小宽度由 `sidebar-layout.ts` 统一定义，普通 TAB 和 Modbus 拖拽侧栏应保持一致。
@@ -48,6 +50,8 @@ Modbus 设备预设的数据校验、编码与顺序执行位于 `src/renderer/s
 `src/renderer/src/data-window-program.ts`，复用 QuickJS Worker 的内存和执行时间限制。
 修改换算行为时运行 `bun test tests/data-window-parser.test.ts tests/data-window-program.test.ts`，
 并在生产构建后运行 `bun run test:ui:serial`。处理队列仅保留最新待处理值；配置变更、断线和关闭窗口时须清理运行器，避免旧结果覆盖新配置。
+
+数据窗口曲线取值位于 `data-window-plot.ts`，普通模式的 HEX 使用未缩放整数，DEC 应用字段小数位。修改时运行 `bun test tests/data-window-plot.test.ts tests/plot-data.test.ts`，构建后运行串口与曲线 UI 回归；串口回归覆盖格式切换、默认值、重载保存及发送到主窗口的实际数值。
 
 ```text
 SerialFlow/
@@ -83,6 +87,10 @@ SerialFlow/
 
 ## 常用命令与验证
 
+虚拟串口对的侧栏与主面板共用 `use-serial-pairs.ts` 状态。`bun run test:ui:serial` 使用模拟 IPC 验证列表、创建删除、失败提示、空状态、折叠和 TAB 切换，截图为 `.tmp/ui-smoke/serial-pairs.png`；不安装驱动、不请求管理员授权，真实驱动操作仍需设备环境验收。
+
+接收分帧入口位于数据交互区域，组件为 `ReceiveFraming.tsx`，全局规则通过 `receive-framing-settings.ts` 同步到所有串口，只有固定长度独立保存；新增串口继承全局规则，旧配置和导入工程以第一个串口的规则统一，保留各串口长度及原有工程格式。运行 `bun test tests/receive-framing-settings.test.ts tests/serial-protocols.test.ts`。`bun run test:ui:serial` 包含五种全局模式、独立长度、新增串口继承、重载保存及展开收起验证，并输出 `.tmp/ui-smoke/receive-framing.png`。
+
 | 命令                   | 用途                                     |
 | ---------------------- | ---------------------------------------- |
 | `bun run dev`          | 启动开发环境                             |
@@ -113,6 +121,8 @@ bun run test:ui:updates
 `test:ui` 验证固件流程，`test:ui:updates` 验证更新流程。这些测试使用模拟对象，不会实际烧写设备，不能替代硬件验收。固件改动还应验证真实设备的烧录、启动、取消、断线与串口恢复；虚拟串口兼容性验证见 [驱动说明](driver/SerialFlowVirtualSerial/README.md)。
 
 ## 构建与打包
+
+Linux 图标由 `build/icon-v3.png` 提供，运行时资源为 `resources/icon-v3.png`。DEB 桌面入口使用 `/opt/SerialFlow/resources/icon.png` 的绝对路径，避免旧主题缓存导致默认齿轮图标；该文件由 `linux.extraResources` 安装。修改产品名、安装路径或资源位置时同步此路径。AppImage / Snap 保留主题图标名称，以支持可移动安装。运行 `bun test tests/linux-desktop.test.ts` 检查生成的桌面入口；Linux 实机还需安装 DEB，检查应用菜单、桌面快捷方式和运行中窗口图标，分别验证 X11 / Wayland。
 
 | 命令                          | 输出目标                              |
 | ----------------------------- | ------------------------------------- |

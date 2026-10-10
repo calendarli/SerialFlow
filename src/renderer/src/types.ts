@@ -1,10 +1,12 @@
 import type { SerialPortInfo } from '@common/serial-port'
+import type { SerialTransport } from '@common/remote-serial'
 
 export type Port = SerialPortInfo
 export type SerialConfig = {
   id: number
   name: string
   path: string
+  transport?: SerialTransport
   baudRate: number
   dataBits: DataBits
   stopBits: StopBits

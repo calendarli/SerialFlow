@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { serialPortLabel } from '@common/serial-port'
-import type { DataBits, Parity, Port, SerialConfig, SerialFramingMode, StopBits } from '../types'
+import { normalizeSerialPortPath, serialPortLabel } from '@common/serial-port'
+import { isRemoteSerial } from '@common/remote-serial'
+import type { DataBits, Parity, Port, SerialConfig, StopBits } from '../types'
 
 type Props = {
   ports: Port[]
@@ -54,6 +55,7 @@ export function SerialConfigPanel(props: Props): React.JSX.Element {
       </div>
       <div className="serial-profile-list">
         {props.configs.map((config, index) => {
+          const remote = isRemoteSerial(config)
           const isOpen = props.openedPorts.has(config.path)
           const disabled = isOpen || props.busy
           const isCollapsed = collapsedIds.has(config.id)
@@ -97,195 +99,146 @@ export function SerialConfigPanel(props: Props): React.JSX.Element {
               {!isCollapsed && (
                 <>
                   <label>
-                    端口
+                    连接方式
                     <select
-                      className={`serial-port-select ${isOpen ? 'port-open' : ''}`}
-                      value={config.path}
+                      aria-label={`串口组 ${index + 1} 连接方式`}
+                      value={remote ? 'tcp' : 'serial'}
                       disabled={disabled}
-                      onChange={(event) => props.onChange(config.id, { path: event.target.value })}
+                      onChange={(event) =>
+                        props.onChange(config.id, {
+                          transport: event.target.value === 'tcp' ? 'tcp' : 'serial',
+                          path: event.target.value === 'tcp' ? 'tcp://' : ''
+                        })
+                      }
                     >
-                      <option value="">选择串口</option>
-                      {config.path && !props.ports.some((port) => port.path === config.path) && (
-                        <option value={config.path}>{config.path} · 设备已断开</option>
-                      )}
-                      {props.ports.map((port) => (
-                        <option
-                          key={port.path}
-                          value={port.path}
-                          className={props.openedPorts.has(port.path) ? 'port-open' : 'port-closed'}
-                          disabled={props.configs.some(
-                            (item) => item.id !== config.id && item.path === port.path
-                          )}
+                      <option value="serial">本地串口</option>
+                      <option value="tcp">ser2net TCP（远程串口）</option>
+                    </select>
+                  </label>
+                  {remote ? (
+                    <>
+                      <label>
+                        远程地址
+                        <input
+                          className="serial-remote-address"
+                          aria-label={`串口组 ${index + 1} 远程地址`}
+                          aria-describedby={`remote-hint-${config.id}`}
+                          value={config.path}
+                          placeholder="tcp://192.168.1.50:2000"
+                          spellCheck={false}
+                          disabled={disabled}
+                          onChange={(event) =>
+                            props.onChange(config.id, { path: event.target.value })
+                          }
+                          onBlur={() =>
+                            props.onChange(config.id, {
+                              path: normalizeSerialPortPath(config.path)
+                            })
+                          }
+                        />
+                      </label>
+                      <p className="serial-remote-hint" id={`remote-hint-${config.id}`}>
+                        使用 ser2net 原始 TCP 端口。波特率、数据位、校验位和流控在远端配置；不支持
+                        Telnet / RFC2217。
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <label>
+                        端口
+                        <select
+                          className={`serial-port-select ${isOpen ? 'port-open' : ''}`}
+                          value={config.path}
+                          disabled={disabled}
+                          onChange={(event) =>
+                            props.onChange(config.id, { path: event.target.value })
+                          }
                         >
-                          {serialPortLabel(port)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    波特率
-                    <select
-                      value={config.baudRate}
-                      disabled={disabled}
-                      onChange={(event) =>
-                        props.onChange(config.id, { baudRate: Number(event.target.value) })
-                      }
-                    >
-                      {baudRates.map((value) => (
-                        <option key={value}>{value}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <div className="grid-two">
-                    <label>
-                      数据位
-                      <select
-                        value={config.dataBits}
-                        disabled={disabled}
-                        onChange={(event) =>
-                          props.onDataBitsChange(config, Number(event.target.value) as DataBits)
-                        }
-                      >
-                        {[5, 6, 7, 8].map((value) => (
-                          <option key={value}>{value}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      停止位
-                      <select
-                        value={config.stopBits}
-                        disabled={disabled}
-                        onChange={(event) =>
-                          props.onChange(config.id, {
-                            stopBits: Number(event.target.value) as StopBits
-                          })
-                        }
-                      >
-                        <option value={1}>1</option>
-                        {config.dataBits === 5 && <option value={1.5}>1.5</option>}
-                        {config.dataBits !== 5 && <option value={2}>2</option>}
-                      </select>
-                    </label>
-                  </div>
-                  <label>
-                    校验位
-                    <select
-                      value={config.parity}
-                      disabled={disabled}
-                      onChange={(event) =>
-                        props.onChange(config.id, { parity: event.target.value as Parity })
-                      }
-                    >
-                      <option value="none">无校验</option>
-                      <option value="even">偶校验</option>
-                      <option value="odd">奇校验</option>
-                      <option value="mark">Mark</option>
-                      <option value="space">Space</option>
-                    </select>
-                  </label>
-                  <fieldset className="serial-framing-settings">
-                    <legend>接收分帧</legend>
-                    <label>
-                      方式
-                      <select
-                        value={config.framing.mode}
-                        onChange={(event) =>
-                          props.onChange(config.id, {
-                            framing: {
-                              ...config.framing,
-                              mode: event.target.value as SerialFramingMode
-                            }
-                          })
-                        }
-                      >
-                        <option value="raw">原始数据块</option>
-                        <option value="delimiter">分隔符</option>
-                        <option value="fixed">固定长度</option>
-                        <option value="header-footer">帧头 + 帧尾</option>
-                        <option value="idle">空闲超时</option>
-                      </select>
-                    </label>
-                    {config.framing.mode === 'delimiter' && (
-                      <label>
-                        分隔符
-                        <input
-                          value={config.framing.delimiter}
-                          placeholder="例如 \\r\\n"
-                          onChange={(event) =>
-                            props.onChange(config.id, {
-                              framing: { ...config.framing, delimiter: event.target.value }
-                            })
-                          }
-                        />
-                      </label>
-                    )}
-                    {config.framing.mode === 'fixed' && (
-                      <label>
-                        每帧字节数
-                        <input
-                          type="number"
-                          min="1"
-                          max="1048576"
-                          value={config.framing.fixedLength}
-                          onChange={(event) =>
-                            props.onChange(config.id, {
-                              framing: {
-                                ...config.framing,
-                                fixedLength: Math.max(1, Number(event.target.value) || 1)
+                          <option value="">选择串口</option>
+                          {config.path &&
+                            !props.ports.some((port) => port.path === config.path) && (
+                              <option value={config.path}>{config.path} · 设备已断开</option>
+                            )}
+                          {props.ports.map((port) => (
+                            <option
+                              key={port.path}
+                              value={port.path}
+                              className={
+                                props.openedPorts.has(port.path) ? 'port-open' : 'port-closed'
                               }
-                            })
-                          }
-                        />
+                              disabled={props.configs.some(
+                                (item) => item.id !== config.id && item.path === port.path
+                              )}
+                            >
+                              {serialPortLabel(port)}
+                            </option>
+                          ))}
+                        </select>
                       </label>
-                    )}
-                    {config.framing.mode === 'header-footer' && (
+                      <label>
+                        波特率
+                        <select
+                          value={config.baudRate}
+                          disabled={disabled}
+                          onChange={(event) =>
+                            props.onChange(config.id, { baudRate: Number(event.target.value) })
+                          }
+                        >
+                          {baudRates.map((value) => (
+                            <option key={value}>{value}</option>
+                          ))}
+                        </select>
+                      </label>
                       <div className="grid-two">
                         <label>
-                          帧头 HEX
-                          <input
-                            value={config.framing.header}
+                          数据位
+                          <select
+                            value={config.dataBits}
+                            disabled={disabled}
                             onChange={(event) =>
-                              props.onChange(config.id, {
-                                framing: { ...config.framing, header: event.target.value }
-                              })
+                              props.onDataBitsChange(config, Number(event.target.value) as DataBits)
                             }
-                          />
+                          >
+                            {[5, 6, 7, 8].map((value) => (
+                              <option key={value}>{value}</option>
+                            ))}
+                          </select>
                         </label>
                         <label>
-                          帧尾 HEX
-                          <input
-                            value={config.framing.footer}
+                          停止位
+                          <select
+                            value={config.stopBits}
+                            disabled={disabled}
                             onChange={(event) =>
                               props.onChange(config.id, {
-                                framing: { ...config.framing, footer: event.target.value }
+                                stopBits: Number(event.target.value) as StopBits
                               })
                             }
-                          />
+                          >
+                            <option value={1}>1</option>
+                            {config.dataBits === 5 && <option value={1.5}>1.5</option>}
+                            {config.dataBits !== 5 && <option value={2}>2</option>}
+                          </select>
                         </label>
                       </div>
-                    )}
-                    {config.framing.mode === 'idle' && (
                       <label>
-                        空闲时间（ms）
-                        <input
-                          type="number"
-                          min="1"
-                          max="60000"
-                          value={config.framing.idleTimeout}
+                        校验位
+                        <select
+                          value={config.parity}
+                          disabled={disabled}
                           onChange={(event) =>
-                            props.onChange(config.id, {
-                              framing: {
-                                ...config.framing,
-                                idleTimeout: Math.max(1, Number(event.target.value) || 1)
-                              }
-                            })
+                            props.onChange(config.id, { parity: event.target.value as Parity })
                           }
-                        />
+                        >
+                          <option value="none">无校验</option>
+                          <option value="even">偶校验</option>
+                          <option value="odd">奇校验</option>
+                          <option value="mark">Mark</option>
+                          <option value="space">Space</option>
+                        </select>
                       </label>
-                    )}
-                    <small>分帧后再进行显示、条件暂停和自动回复匹配</small>
-                  </fieldset>
+                    </>
+                  )}
                   <div className="serial-plot-setting">
                     <label>
                       <input
@@ -314,7 +267,15 @@ export function SerialConfigPanel(props: Props): React.JSX.Element {
                     disabled={props.busy || !config.path}
                     onClick={() => props.onToggle(config)}
                   >
-                    {props.busy ? '正在处理…' : isOpen ? '关闭此串口' : '打开此串口'}
+                    {props.busy
+                      ? '正在处理…'
+                      : remote
+                        ? isOpen
+                          ? '断开远程串口'
+                          : '连接远程串口'
+                        : isOpen
+                          ? '关闭此串口'
+                          : '打开此串口'}
                   </button>
                 </>
               )}

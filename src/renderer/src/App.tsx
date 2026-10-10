@@ -1,4 +1,5 @@
 import { normalizeSerialPortPath } from '@common/serial-port'
+import { isRemoteSerial, parseTcpEndpoint } from '@common/remote-serial'
 import {
   interactionDisplayKey,
   loadInteractionDisplay,
@@ -25,6 +26,8 @@ import { normalizeCommandExtensions } from './command-settings'
 import { SendPanel } from './components/SendPanel'
 import { SerialConfigPanel } from './components/SerialConfigPanel'
 import { SerialPairPanel } from './components/SerialPairPanel'
+import { SerialPairList } from './components/SerialPairList'
+import { useSerialPairs } from './use-serial-pairs'
 import { Sidebar } from './components/Sidebar'
 import {
   createAutoReplyTransfer,
@@ -37,6 +40,7 @@ import {
   type QuickCommandImportOptions
 } from './quick-command-import'
 import { defaultSerialFraming, SerialFramer } from './serial-framer'
+import { applyGlobalFraming, type GlobalSerialFraming } from './receive-framing-settings'
 import { autoReplyProgramRuntime } from './scripts/auto-reply-program'
 import { fillGlobalPlaceholders, normalizeGroupGlobals } from './scripts/group-globals'
 import {
@@ -369,13 +373,16 @@ function loadSerialConfigs(): SerialConfig[] {
     const saved = JSON.parse(localStorage.getItem(serialConfigsKey) || 'null') as
       SerialConfig[] | null
     if (Array.isArray(saved) && saved.length) {
-      return saved.map((config, index) => ({
-        ...config,
-        id: Number(config.id) || Date.now() + index,
-        name: config.name?.trim() || `串口组 ${index + 1}`,
-        framing: normalizeSerialFraming(config.framing),
-        plotEnabled: config.plotEnabled === true
-      }))
+      return applyGlobalFraming(
+        saved.map((config, index) => ({
+          ...config,
+          path: normalizeSerialPortPath(config.path),
+          id: Number(config.id) || Date.now() + index,
+          name: config.name?.trim() || `串口组 ${index + 1}`,
+          framing: normalizeSerialFraming(config.framing),
+          plotEnabled: config.plotEnabled === true
+        }))
+      )
     }
   } catch {
     /* Migrate the previous single-port setting below. */
@@ -529,6 +536,7 @@ function App(): React.JSX.Element {
   const [sideTab, setSideTab] = useState<
     'serial' | 'pairs' | 'commands' | 'rules' | 'modbus' | 'about'
   >('serial')
+  const serialPairs = useSerialPairs(sideTab === 'pairs')
   const [rxCommunicationCount, setRxCommunicationCount] = useState(0)
   const [txCommunicationCount, setTxCommunicationCount] = useState(0)
   const [rxFrequency, setRxFrequency] = useState(0)
@@ -742,7 +750,9 @@ function App(): React.JSX.Element {
     setPorts(list)
     setSerialConfigs((current) =>
       current.map((config, index) =>
-        index === 0 && !config.path && list[0]?.path ? { ...config, path: list[0].path } : config
+        index === 0 && !isRemoteSerial(config) && !config.path && list[0]?.path
+          ? { ...config, path: list[0].path }
+          : config
       )
     )
   }, [])
@@ -1043,7 +1053,9 @@ function App(): React.JSX.Element {
     }
     const offData = window.api.onData(({ path: sourcePort, chunks }) => {
       const framing =
-        serialConfigs.find((config) => config.path === sourcePort)?.framing || defaultSerialFraming
+        serialConfigs.find((config) => config.path === sourcePort)?.framing ||
+        serialConfigs[0]?.framing ||
+        defaultSerialFraming
       for (const chunk of chunks) {
         try {
           serialFramerRef.current.push(sourcePort, framing, chunk, (frame) =>
@@ -1246,7 +1258,11 @@ function App(): React.JSX.Element {
         dataBits: 8,
         stopBits: 1,
         parity: 'none',
-        framing: { ...defaultSerialFraming },
+        framing: {
+          ...defaultSerialFraming,
+          ...current[0]?.framing,
+          fixedLength: defaultSerialFraming.fixedLength
+        },
         plotEnabled: false
       }
     ])
@@ -1256,28 +1272,54 @@ function App(): React.JSX.Element {
     setSerialConfigs((current) => current.filter((config) => config.id !== id))
   }
 
+  const updateReceiveFraming = (patch: Partial<GlobalSerialFraming>): void => {
+    setSerialConfigs((current) => applyGlobalFraming(current, patch))
+  }
+
+  const updateReceiveFixedLength = (id: number, length: number): void => {
+    setSerialConfigs((current) =>
+      current.map((config) =>
+        config.id === id
+          ? { ...config, framing: { ...config.framing, fixedLength: length } }
+          : config
+      )
+    )
+  }
+
   const toggleConnection = async (config: SerialConfig): Promise<void> => {
     if (connectionBusyRef.current) return
     connectionBusyRef.current = true
     setConnectionBusy(true)
-    const isOpen = openedPorts.has(config.path)
+    const path = normalizeSerialPortPath(config.path)
+    const remote = isRemoteSerial(config)
+    const isOpen = openedPorts.has(path)
     try {
-      if (isOpen) await window.api.closePort(config.path)
+      if (isOpen) await window.api.closePort(path)
       else {
-        if (!config.path) return showProblem('请选择串口；如果列表为空，请先点击刷新并检查设备连接')
-        if (openedPorts.has(config.path)) return showProblem(`${config.path} 已经打开`)
+        if (remote) parseTcpEndpoint(path)
+        if (!path) return showProblem('请选择串口；如果列表为空，请先点击刷新并检查设备连接')
+        if (
+          serialConfigs.some(
+            (item) => item.id !== config.id && normalizeSerialPortPath(item.path) === path
+          )
+        )
+          return showProblem(`${path} 已被其他配置使用，请使用已有配置或修改地址`)
+        updateSerialConfig(config.id, { path })
         await window.api.openPort({
-          path: config.path,
+          path,
+          transport: remote ? 'tcp' : 'serial',
           baudRate: config.baudRate,
           dataBits: config.dataBits,
           stopBits: config.stopBits,
           parity: config.parity
         })
         setMessage(
-          `已打开 ${config.path}（${config.baudRate} baud，${config.dataBits}${config.parity === 'none' ? 'N' : config.parity[0].toUpperCase()}${config.stopBits}）`
+          remote
+            ? `已连接 ${path}（串口参数由远端 ser2net 配置）`
+            : `已打开 ${path}（${config.baudRate} baud，${config.dataBits}${config.parity === 'none' ? 'N' : config.parity[0].toUpperCase()}${config.stopBits}）`
         )
       }
-      if (isOpen) setMessage(`已断开 ${config.path}`)
+      if (isOpen) setMessage(`已断开 ${path}`)
     } catch (error) {
       showError(error, isOpen ? '断开串口失败' : '打开串口失败')
     } finally {
@@ -1464,13 +1506,16 @@ function App(): React.JSX.Element {
         throw new Error('不是受支持的 SerialFlow 工程文件')
       if (Array.isArray(project.serialConfigs) && project.serialConfigs.length)
         setSerialConfigs(
-          (project.serialConfigs as SerialConfig[]).map((config, index) => ({
-            ...config,
-            id: Number(config.id) || Date.now() + index,
-            name: config.name?.trim() || `串口组 ${index + 1}`,
-            framing: normalizeSerialFraming(config.framing),
-            plotEnabled: config.plotEnabled === true
-          }))
+          applyGlobalFraming(
+            (project.serialConfigs as SerialConfig[]).map((config, index) => ({
+              ...config,
+              path: normalizeSerialPortPath(config.path),
+              id: Number(config.id) || Date.now() + index,
+              name: config.name?.trim() || `串口组 ${index + 1}`,
+              framing: normalizeSerialFraming(config.framing),
+              plotEnabled: config.plotEnabled === true
+            }))
+          )
         )
       if (Array.isArray(project.rules))
         setRules(
@@ -1548,6 +1593,7 @@ function App(): React.JSX.Element {
           onTabChange={setSideTab}
           commandCount={commands.length}
           enabledRuleCount={rules.filter((rule) => rule.enabled).length}
+          pairsContent={<SerialPairList model={serialPairs} />}
           serialContent={
             <SerialConfigPanel
               ports={ports}
@@ -1604,7 +1650,7 @@ function App(): React.JSX.Element {
           }
         />
         {sideTab === 'pairs' ? (
-          <SerialPairPanel />
+          <SerialPairPanel model={serialPairs} />
         ) : sideTab === 'modbus' ? (
           <ModbusPanel
             collapsed={modbusCollapsed}
@@ -1626,6 +1672,9 @@ function App(): React.JSX.Element {
                 embedded
               />
               <ReceivePanel
+                configs={serialConfigs}
+                onFramingChange={updateReceiveFraming}
+                onFixedLengthChange={updateReceiveFixedLength}
                 entries={interactionCache.entries}
                 rxHex={rxHex}
                 timestamp={timestamp}

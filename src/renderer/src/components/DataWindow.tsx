@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { WindowPinButton } from './WindowPinButton'
 import { ProgramCodeEditor } from './ProgramCodeEditor'
+import { dataWindowPlotValues } from '../data-window-plot'
 import {
   DataProgramRuntime,
   dataProgramInput,
@@ -84,7 +85,12 @@ export function DataWindow({ id }: { id: string }): React.JSX.Element {
         if (active && revision === job.revision) {
           setProcessed({ values })
           if (config.plotEnabled)
-            void window.api.publishDataWindowPlot({ id, name: config.name, values: Object.fromEntries(values.map((value) => [value.name, value.value])), timestamp: Date.now() })
+            void window.api.publishDataWindowPlot({
+              id,
+              name: config.name,
+              values: Object.fromEntries(values.map((value) => [value.name, value.value])),
+              timestamp: Date.now()
+            })
         }
       } catch (cause) {
         if (active && revision === job.revision)
@@ -117,12 +123,7 @@ export function DataWindow({ id }: { id: string }): React.JSX.Element {
             void window.api.publishDataWindowPlot({
               id,
               name: config.name,
-              values: Object.fromEntries(
-                match.fields.map((field) => {
-                  const format = normalizeDataFieldFormat(config.fieldFormats[field.name])
-                  return [field.name, Number(formatDataValue(field.hex, format.signed, format.decimals).dec)]
-                })
-              ),
+              values: dataWindowPlotValues(match, config),
               timestamp: Date.now()
             })
         }
@@ -300,10 +301,32 @@ export function DataWindow({ id }: { id: string }): React.JSX.Element {
               </button>
             </div>
           </div>
-          <label className="data-window-plot-toggle">
-            <input type="checkbox" checked={draft.plotEnabled === true} onChange={(event) => setDraft({ ...draft, plotEnabled: event.target.checked })} />
-            显示到曲线图（DEC）
-          </label>
+          <div className="data-window-plot-options">
+            <label className="data-window-plot-toggle">
+              <input
+                type="checkbox"
+                checked={draft.plotEnabled === true}
+                onChange={(event) => setDraft({ ...draft, plotEnabled: event.target.checked })}
+              />
+              显示到曲线图
+            </label>
+            <select
+              aria-label="曲线数值格式"
+              value={draft.programming ? 'dec' : (draft.plotFormat ?? 'dec')}
+              disabled={draft.programming === true}
+              onChange={(event) =>
+                setDraft({ ...draft, plotFormat: event.target.value === 'hex' ? 'hex' : 'dec' })
+              }
+            >
+              <option value="dec">DEC</option>
+              <option value="hex">HEX</option>
+            </select>
+          </div>
+          <small>
+            {draft.programming
+              ? '编程模式绘制程序返回的换算结果。'
+              : 'DEC 应用字段小数位；HEX 绘制未缩放的整数，保留有符号设置。曲线坐标仍使用十进制数值。'}
+          </small>
           {draft.programming && (
             <>
               <label>

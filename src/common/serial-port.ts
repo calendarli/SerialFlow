@@ -1,3 +1,5 @@
+import { isTcpPath, parseTcpEndpoint } from './remote-serial'
+
 export type SerialPortInfo = {
   path: string
   manufacturer?: string
@@ -9,9 +11,17 @@ export type SerialPortInfo = {
   locationId?: string
 }
 
-// COM names are case-insensitive; Unix device paths must retain their case.
+// Canonicalize TCP endpoints and COM names; Unix device paths retain their case.
 export function normalizeSerialPortPath(path: string): string {
   const trimmed = path.trim()
+  if (isTcpPath(trimmed)) {
+    try {
+      return parseTcpEndpoint(trimmed).path
+    } catch {
+      // Keep incomplete editor input so validation can explain it on connect.
+      return trimmed
+    }
+  }
   return /^COM\d+$/i.test(trimmed) ? trimmed.toUpperCase() : trimmed
 }
 

@@ -2,7 +2,7 @@
   "name": "serialflow",
   "productName": "SerialFlow",
   "desktopName": "io.github.calendarli.serialflow.desktop",
-  "version": "3.6.2",
+  "version": "3.7.0",
   "description": "高速串口数据调试与自动化交互工具",
   "main": "./out/main/index.js",
   "author": "calendarli",
@@ -34,6 +34,7 @@
     "test:ui": "bun scripts/run-ui-smoke.ts",
     "test:ui:updates": "bun scripts/run-ui-smoke.ts updates",
     "test:ui:serial": "bun scripts/run-ui-smoke.ts serial",
+    "test:ui:remote": "bun scripts/run-ui-smoke.ts remote",
     "test:ui:plot": "bun scripts/run-ui-smoke.ts plot"
   },
   "dependencies": {
