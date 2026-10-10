@@ -629,7 +629,7 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel({
         </fieldset>
         <p className="firmware-hint">
           {tft
-            ? '淘晶驰串口屏：自动联机后以设定波特率完整下载 TFT，不跳过相同资源。完成后请检查屏幕显示。'
+            ? '淘晶驰串口屏：自动联机后以设定波特率下载 TFT，按屏幕确认跳过相同资源。完成后请检查屏幕显示。'
             : stm
               ? ymodem
                 ? '先让设备自带 Bootloader 进入 Ymodem 接收状态；仅发送 BIN，须收到接收端 C 握手和各阶段确认。传输成功不等于已独立校验 Flash。'

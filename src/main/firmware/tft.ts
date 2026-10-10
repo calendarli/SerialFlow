@@ -1,4 +1,5 @@
 import type { YmodemPort } from './ymodem'
+import { setTimeout as delay } from 'node:timers/promises'
 
 export type TftPort = YmodemPort & {
   update(options: { baudRate: number }, callback: (error?: Error | null) => void): unknown
@@ -90,14 +91,19 @@ export async function transferTft(
       }
     })
   }
-  const ack = (buffer: Buffer): boolean => {
+  const reply = (buffer: Buffer, allowSkip = false): number | null => {
     // Ordinary command replies are FF-terminated; do not mistake a 0x05
     // embedded in one for the download protocol's standalone acknowledgement.
-    if (buffer[0] === 5) return true
-    const boundary = buffer.lastIndexOf(end)
-    if (boundary >= 0 && buffer[boundary + 3] === 5) return true
-    if (buffer[0] === 8) throw new Error('设备请求资源跳转，当前仅支持完整 TFT 下载')
-    return false
+    let offset = 0
+    while (offset < buffer.length) {
+      if (buffer[offset] === 5) return 0
+      if (buffer[offset] === 8 && allowSkip)
+        return buffer.length - offset < 5 ? null : buffer.readUInt32LE(offset + 1)
+      const boundary = buffer.indexOf(end, offset)
+      if (boundary < 0) return null
+      offset = boundary + 3
+    }
+    return null
   }
   try {
     let connected = false
@@ -131,13 +137,20 @@ export async function transferTft(
     }
     if (!connected) throw new Error('串口屏未响应，请检查供电、TX/RX 接线与设备是否支持 TFT 下载')
     if (!data) return
-    // No undocumented resource-skip negotiation: send the complete file.
-    // Drain the command at the detected baud before switching the host baud.
+    // Match the captured official downloader: stop the running screen program,
+    // synchronize its command queue, then wake it before requesting v1.2 upload.
     log(`准备下载 TFT：${data.length} 字节，${baudRate} baud`)
+    await exchange((done) => write(tftCommand('runmod=2'), done))
+    await exchange(
+      (done) => write(tftCommand('print "mystop_yesABC"'), done),
+      (bytes) => bytes.includes(Buffer.from('mystop_yesABC'))
+    )
     await exchange((done) => write(tftCommand('sleep=0'), done))
+    await delay(100, undefined, { signal })
+    log('等待屏幕进入下载模式（whmi-wris）')
     await exchange(
       (done) =>
-        write(tftCommand(`whmi-wri ${data.length},${baudRate},0`), (error) => {
+        write(tftCommand(`whmi-wris ${data.length},${baudRate},1`), (error) => {
           if (error || failure) done(error || failure)
           else {
             try {
@@ -147,17 +160,23 @@ export async function transferTft(
             }
           }
         }),
-      ack
+      (bytes) => reply(bytes) !== null
     )
     log('正在发送 TFT 文件')
-    for (let offset = 0; offset < data.length; offset += 4096) {
+    for (let offset = 0; offset < data.length;) {
       const block = data.subarray(offset, offset + 4096)
-      await exchange(
+      const response = await exchange(
         (done) => write(block, done),
-        ack,
+        (bytes) => reply(bytes, true) !== null,
         timeouts.ack + Math.ceil((block.length * 10000) / baudRate)
       )
-      progress(offset + block.length)
+      const next = reply(response, true)!
+      const sequential = offset + block.length
+      if (next !== 0 && (next < sequential || next > data.length))
+        throw new Error(`屏幕返回无效文件偏移：${next}`)
+      offset = next || sequential
+      if (offset > sequential) log(`屏幕确认相同资源，跳转至 ${offset} / ${data.length} 字节`)
+      progress(offset)
     }
     log('设备已确认全部 TFT 数据；请检查屏幕重启后的显示，尚未独立回读校验。')
   } finally {

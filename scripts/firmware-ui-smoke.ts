@@ -64,6 +64,8 @@ class FakeSerialPort extends EventEmitter {
     setImmediate(() => {
       callback(null)
       if (FakeSerialPort.tftMode) {
+        if (data.toString('latin1').startsWith('print "mystop_yesABC"'))
+          this.emit('data', Buffer.from('mystop_yesABC'))
         if (this.tftDownloading) this.emit('data', Buffer.from([5]))
         else if (data.toString('latin1').includes('connect'))
           this.emit(
@@ -73,7 +75,7 @@ class FakeSerialPort extends EventEmitter {
               Buffer.from([255, 255, 255])
             ])
           )
-        else if (data.toString('latin1').startsWith('whmi-wri')) {
+        else if (data.toString('latin1').startsWith('whmi-wris ')) {
           this.tftDownloading = true
           this.emit('data', Buffer.from([5]))
         }

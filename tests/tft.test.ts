@@ -37,6 +37,8 @@ class Screen extends EventEmitter {
     } else {
       const command = bytes.toString('latin1')
       this.commands.push(command)
+      if (command.startsWith('print "mystop_yesABC"'))
+        this.emit('data', Buffer.from('mystop_yesABC'))
       if (command.includes('connect') && this.baudRate === this.connectRate) {
         // Fragmented response plus preceding normal command reply.
         this.emit('data', Buffer.from([1, 255, 255, 255]))
@@ -46,7 +48,7 @@ class Screen extends EventEmitter {
           tftCommand(`ok 0,30517-0,TJC1612T118_011N,124,61744,DD27350109AC7872,${this.capacity}`)
         )
       }
-      if (command.startsWith('whmi-wri')) {
+      if (command.startsWith('whmi-wris ') && command.endsWith(',1\xff\xff\xff')) {
         this.downloading = true
         this.emit('data', Buffer.from([5]))
       }
@@ -70,7 +72,7 @@ test('TFT scans baud, parses split comok, switches baud and sends exact 4096 byt
   expect(screen.rates).toEqual([115200, 9600, 115200])
   expect(
     screen.commands.some(
-      (command) => command === tftCommand('whmi-wri 8193,115200,0').toString('latin1')
+      (command) => command === tftCommand('whmi-wris 8193,115200,1').toString('latin1')
     )
   ).toBe(true)
   expect(screen.blocks.map((b) => b.length)).toEqual([4096, 4096, 1])
@@ -122,6 +124,36 @@ test('TFT duplicate ACK cannot confirm following block; unconfirmed data is neve
   expect(screen.blocks.length).toBe(2)
   expect(progress).toEqual([4096])
   expect(screen.listenerCount('error')).toBe(0)
+})
+
+test('TFT enhanced replies support fragmented skip, zero continuation and reject invalid offsets', async () => {
+  for (const target of [0, 8192, 8193, 1, 9000]) {
+    const screen = new Screen()
+    const write = screen.write.bind(screen)
+    screen.write = (bytes, done) => {
+      if (!screen.downloading || screen.blocks.length) return write(bytes, done)
+      screen.blocks.push(Buffer.from(bytes))
+      const response = Buffer.alloc(5)
+      response[0] = 8
+      response.writeUInt32LE(target, 1)
+      screen.emit('data', response.subarray(0, 2))
+      setTimeout(() => screen.emit('data', response.subarray(2)), 1)
+      done()
+    }
+    const data = Buffer.alloc(8193)
+    data[8192] = 0x73
+    const progress: number[] = []
+    const result = run(screen, data, undefined, (n) => progress.push(n))
+    if (target === 1 || target === 9000) {
+      await expect(result).rejects.toThrow('无效文件偏移')
+      expect(progress).toEqual([])
+    } else {
+      await result
+      expect(progress.at(-1)).toBe(data.length)
+      expect(screen.blocks.length).toBe(target === 0 ? 3 : target === 8192 ? 2 : 1)
+      if (target === 8192) expect(screen.blocks[1]).toEqual(data.subarray(8192))
+    }
+  }
 })
 test('TFT disconnect, cancellation and serial write failures abort and remove listeners', async () => {
   for (const kind of ['disconnect', 'abort', 'write']) {
