@@ -12,6 +12,9 @@ class Screen extends EventEmitter {
   baudRate = 115200
   rates: number[] = []
   blocks: Buffer[] = []
+  writes: Buffer[] = []
+  pending = Buffer.alloc(0)
+  remaining = 0
   commands: string[] = []
   downloading = false
   capacity = 4194304
@@ -30,10 +33,16 @@ class Screen extends EventEmitter {
   }
   write(bytes: Buffer, done: (error?: Error) => void): void {
     if (this.downloading) {
-      this.blocks.push(Buffer.from(bytes))
-      this.onBlock?.()
-      if (this.disconnect) this.emit('close')
-      else if (this.reply) this.emit('data', Buffer.from(this.duplicate ? [5, 5] : [5]))
+      this.writes.push(Buffer.from(bytes))
+      this.pending = Buffer.concat([this.pending, bytes])
+      if (this.pending.length === Math.min(4096, this.remaining)) {
+        this.blocks.push(this.pending)
+        this.remaining -= this.pending.length
+        this.pending = Buffer.alloc(0)
+        this.onBlock?.()
+        if (this.disconnect) this.emit('close')
+        else if (this.reply) this.emit('data', Buffer.from(this.duplicate ? [5, 5] : [5]))
+      }
     } else {
       const command = bytes.toString('latin1')
       this.commands.push(command)
@@ -50,6 +59,7 @@ class Screen extends EventEmitter {
       }
       if (command.startsWith('whmi-wris ') && command.endsWith(',1\xff\xff\xff')) {
         this.downloading = true
+        this.remaining = Number(command.split(' ')[1].split(',')[0])
         this.emit('data', Buffer.from([5]))
       }
     }
@@ -76,6 +86,7 @@ test('TFT scans baud, parses split comok, switches baud and sends exact 4096 byt
     )
   ).toBe(true)
   expect(screen.blocks.map((b) => b.length)).toEqual([4096, 4096, 1])
+  expect(screen.writes.every((b) => b.length <= 1024)).toBe(true)
   expect(Buffer.concat(screen.blocks)).toEqual(data)
   expect(progress).toEqual([4096, 8192, 8193])
   expect(screen.listenerCount('data')).toBe(0)
@@ -87,6 +98,45 @@ test('TFT detection does not enter download and capacity rejection does not send
   screen.capacity = 1
   await expect(run(screen, Buffer.alloc(2))).rejects.toThrow('容量')
   expect(screen.blocks.length).toBe(0)
+})
+
+test('TFT keeps detected 9600 baud and waits past a framed reply for delayed readiness', async () => {
+  const screen = new Screen()
+  screen.connectRate = 9600
+  const write = screen.write.bind(screen)
+  let ready = false
+  screen.write = (bytes, done) => {
+    if (bytes.toString('ascii').startsWith('whmi-wris ')) {
+      expect(bytes).toEqual(tftCommand('whmi-wris 4097,9600,1'))
+      screen.downloading = true
+      screen.remaining = 4097
+      screen.emit('data', Buffer.from([0, 255]))
+      setTimeout(() => screen.emit('data', Buffer.from([255, 255])), 10)
+      setTimeout(() => {
+        ready = true
+        screen.emit('data', Buffer.from([5]))
+      }, 515)
+      done()
+    } else {
+      if (screen.downloading) expect(ready).toBe(true)
+      write(bytes, done)
+    }
+  }
+  const logs: string[] = []
+  await transferTft(
+    screen,
+    Buffer.alloc(4097),
+    115200,
+    new AbortController().signal,
+    () => {},
+    (message) => logs.push(message),
+    { connect: 1, ack: 1000 },
+    true
+  )
+  expect(screen.rates).toEqual([115200, 9600])
+  expect(screen.blocks.map((b) => b.length)).toEqual([4096, 1])
+  expect(logs.some((line) => line.includes('已收到下载许可'))).toBe(true)
+  expect(logs.some((line) => line.includes('首包已发送'))).toBe(true)
 })
 
 test('TFT missing ready ACK never sends a file block; stalled driver operations are fatal', async () => {
@@ -129,16 +179,18 @@ test('TFT duplicate ACK cannot confirm following block; unconfirmed data is neve
 test('TFT enhanced replies support fragmented skip, zero continuation and reject invalid offsets', async () => {
   for (const target of [0, 8192, 8193, 1, 9000]) {
     const screen = new Screen()
-    const write = screen.write.bind(screen)
-    screen.write = (bytes, done) => {
-      if (!screen.downloading || screen.blocks.length) return write(bytes, done)
-      screen.blocks.push(Buffer.from(bytes))
+    screen.reply = false
+    screen.onBlock = () => {
+      if (screen.blocks.length > 1) {
+        screen.emit('data', Buffer.from([5]))
+        return
+      }
       const response = Buffer.alloc(5)
       response[0] = 8
       response.writeUInt32LE(target, 1)
+      if (target > 0) screen.remaining = 8193 - target
       screen.emit('data', response.subarray(0, 2))
       setTimeout(() => screen.emit('data', response.subarray(2)), 1)
-      done()
     }
     const data = Buffer.alloc(8193)
     data[8192] = 0x73

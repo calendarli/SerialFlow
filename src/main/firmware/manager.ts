@@ -584,7 +584,9 @@ export class FirmwareManager {
             (message) => {
               this.log(message)
               state.phase = message
-            }
+            },
+            undefined,
+            request.tftUseDetectedBaud !== false
           )
         } finally {
           this.abortYmodem = null

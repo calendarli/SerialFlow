@@ -21,6 +21,8 @@ type SerialOptions = { path: string; baudRate: number }
 class FakeSerialPort extends EventEmitter {
   static tftMode = false
   private tftDownloading = false
+  private tftReceived = 0
+  private tftSize = 0
   static ymodemMode = false
   static autoHandshake = true
   static latestYmodem: FakeSerialPort | null = null
@@ -66,8 +68,11 @@ class FakeSerialPort extends EventEmitter {
       if (FakeSerialPort.tftMode) {
         if (data.toString('latin1').startsWith('print "mystop_yesABC"'))
           this.emit('data', Buffer.from('mystop_yesABC'))
-        if (this.tftDownloading) this.emit('data', Buffer.from([5]))
-        else if (data.toString('latin1').includes('connect'))
+        if (this.tftDownloading) {
+          this.tftReceived += data.length
+          if (this.tftReceived % 4096 === 0 || this.tftReceived === this.tftSize)
+            this.emit('data', Buffer.from([5]))
+        } else if (data.toString('latin1').includes('connect'))
           this.emit(
             'data',
             Buffer.concat([
@@ -77,6 +82,7 @@ class FakeSerialPort extends EventEmitter {
           )
         else if (data.toString('latin1').startsWith('whmi-wris ')) {
           this.tftDownloading = true
+          this.tftSize = Number(data.toString('ascii').split(' ')[1].split(',')[0])
           this.emit('data', Buffer.from([5]))
         }
         return

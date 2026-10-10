@@ -42,6 +42,7 @@ function loadSettings(): { request: FirmwareRequest; tools: Record<FirmwareFamil
       request: {
         ...defaults,
         family,
+        tftUseDetectedBaud: saved.tftUseDetectedBaud !== false,
         transport:
           family === 'stm32' && ['swd', 'ymodem'].includes(saved.transport)
             ? saved.transport
@@ -210,6 +211,7 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel({
       family: request.family,
       transport: request.transport,
       baudRate: request.baudRate,
+      tftUseDetectedBaud: request.tftUseDetectedBaud !== false,
       chip: request.chip,
       verify: request.verify,
       reset: request.reset,
@@ -417,6 +419,31 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel({
               </label>
             )}
             <button onClick={() => void refresh()}>刷新</button>
+            {tft && (
+              <>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={request.tftUseDetectedBaud !== false}
+                    onChange={(e) => patch({ tftUseDetectedBaud: e.target.checked })}
+                  />
+                  使用联机波特率下载
+                </label>
+                {request.tftUseDetectedBaud === false && (
+                  <label>
+                    下载波特率
+                    <input
+                      aria-label="烧录波特率"
+                      type="number"
+                      min="1200"
+                      max="3000000"
+                      value={request.baudRate}
+                      onChange={(e) => patch({ baudRate: Number(e.target.value) })}
+                    />
+                  </label>
+                )}
+              </>
+            )}
             {request.family === 'esp32' && (
               <label>
                 型号
@@ -495,7 +522,7 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel({
           {advanced && (
             <div className="firmware-advanced">
               <div className="firmware-row">
-                {serial && (
+                {serial && !tft && (
                   <label>
                     波特率
                     <input
@@ -629,7 +656,7 @@ export const FirmwareFlashPanel = memo(function FirmwareFlashPanel({
         </fieldset>
         <p className="firmware-hint">
           {tft
-            ? '淘晶驰串口屏：自动联机后以设定波特率下载 TFT，按屏幕确认跳过相同资源。完成后请检查屏幕显示。'
+            ? '淘晶驰串口屏：默认使用联机波特率下载，按屏幕确认跳过相同资源。完成后请检查屏幕显示。'
             : stm
               ? ymodem
                 ? '先让设备自带 Bootloader 进入 Ymodem 接收状态；仅发送 BIN，须收到接收端 C 握手和各阶段确认。传输成功不等于已独立校验 Flash。'

@@ -8,6 +8,7 @@ export type FirmwareRequest = {
   probe: string
   chip: string
   baudRate: number
+  tftUseDetectedBaud?: boolean
   files: FirmwareFile[]
   verify: boolean
   reset: boolean

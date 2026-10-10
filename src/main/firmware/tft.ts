@@ -18,7 +18,8 @@ export async function transferTft(
   signal: AbortSignal,
   progress: (bytes: number) => void,
   log: (message: string) => void,
-  timeouts = { connect: 600, ack: 30000 }
+  timeouts = { connect: 600, ack: 30000 },
+  useDetectedBaud = false
 ): Promise<void> {
   let failure: Error | undefined
   let receive: ((chunk: Buffer) => void) | undefined
@@ -39,7 +40,8 @@ export async function transferTft(
   const exchange = (
     start: (done: (error?: Error | null) => void) => void,
     parse?: (buffer: Buffer) => boolean,
-    timeout = timeouts.ack
+    timeout = timeouts.ack,
+    stage = '串口屏通讯'
   ): Promise<Buffer> =>
     new Promise((resolve, reject) => {
       if (failure) return reject(failure)
@@ -56,10 +58,16 @@ export async function transferTft(
         if (error) reject(error)
         else resolve(buffer)
       }
-      const timer = setTimeout(
-        () => finish(written ? new ResponseTimeout('串口屏响应超时') : new Error('串口操作超时')),
-        timeout
-      )
+      const timer = setTimeout(() => {
+        const received = buffer.length
+          ? buffer.subarray(-32).toString('hex').toUpperCase().match(/../g)!.join(' ')
+          : '无'
+        finish(
+          written
+            ? new ResponseTimeout(`${stage}响应超时；已收到：${received}`)
+            : new Error(`${stage}：串口操作超时；已收到：${received}`)
+        )
+      }, timeout)
       failPending = finish
       receive = (chunk) => {
         buffer = Buffer.concat([buffer, chunk]).subarray(-8192)
@@ -107,6 +115,7 @@ export async function transferTft(
   }
   try {
     let connected = false
+    let detectedBaud = baudRate
     for (const rate of new Set([baudRate, 9600, 115200, 57600, 38400, 19200, 4800, 2400, 1200])) {
       await exchange((done) => port.update({ baudRate: rate }, done))
       log(`正在联机：${rate} baud`)
@@ -130,6 +139,7 @@ export async function transferTft(
         if (data && Number.isSafeInteger(capacity) && capacity > 0 && data.length > capacity)
           throw new Error(`TFT 文件超过设备容量（${capacity} 字节）`)
         connected = true
+        detectedBaud = rate
         break
       } catch (error) {
         if (!(error instanceof ResponseTimeout)) throw error
@@ -137,21 +147,25 @@ export async function transferTft(
     }
     if (!connected) throw new Error('串口屏未响应，请检查供电、TX/RX 接线与设备是否支持 TFT 下载')
     if (!data) return
+    if (useDetectedBaud) baudRate = detectedBaud
     // Match the captured official downloader: stop the running screen program,
     // synchronize its command queue, then wake it before requesting v1.2 upload.
     log(`准备下载 TFT：${data.length} 字节，${baudRate} baud`)
     await exchange((done) => write(tftCommand('runmod=2'), done))
     await exchange(
       (done) => write(tftCommand('print "mystop_yesABC"'), done),
-      (bytes) => bytes.includes(Buffer.from('mystop_yesABC'))
+      (bytes) => bytes.includes(Buffer.from('mystop_yesABC')),
+      timeouts.ack,
+      '等待屏幕命令同步'
     )
     await exchange((done) => write(tftCommand('sleep=0'), done))
     await delay(100, undefined, { signal })
-    log('等待屏幕进入下载模式（whmi-wris）')
+    log(`请求下载：whmi-wris ${data.length},${baudRate},1；等待下载许可 0x05`)
     await exchange(
       (done) =>
         write(tftCommand(`whmi-wris ${data.length},${baudRate},1`), (error) => {
           if (error || failure) done(error || failure)
+          else if (baudRate === detectedBaud) done()
           else {
             try {
               port.update({ baudRate }, done)
@@ -160,21 +174,45 @@ export async function transferTft(
             }
           }
         }),
-      (bytes) => reply(bytes) !== null
+      (bytes) => reply(bytes) !== null,
+      timeouts.ack,
+      `等待下载许可 0x05（${baudRate} baud）`
     )
-    log('正在发送 TFT 文件')
+    log(`已收到下载许可 0x05；准备发送首包（${baudRate} baud）`)
+    // The captured official uploader leaves ~400 ms between readiness and data.
+    await delay(400, undefined, { signal })
     for (let offset = 0; offset < data.length;) {
       const block = data.subarray(offset, offset + 4096)
+      if (offset === 0) log(`正在发送 TFT 首包：${block.length} 字节（每次写入最多 1024 字节）`)
       const response = await exchange(
-        (done) => write(block, done),
+        (done) => {
+          let sent = 0
+          const sendNext = (error?: Error | null): void => {
+            if (error || failure) return done(error || failure)
+            if (sent === block.length) {
+              if (offset === 0) log('首包已发送，等待屏幕确认 0x05 / 0x08')
+              return done()
+            }
+            const part = block.subarray(sent, sent + 1024)
+            sent += part.length
+            try {
+              write(part, sendNext)
+            } catch (cause) {
+              done(cause as Error)
+            }
+          }
+          sendNext()
+        },
         (bytes) => reply(bytes, true) !== null,
-        timeouts.ack + Math.ceil((block.length * 10000) / baudRate)
+        timeouts.ack + Math.ceil((block.length * 10000) / baudRate),
+        `等待文件 ${offset}–${offset + block.length} 字节确认`
       )
       const next = reply(response, true)!
       const sequential = offset + block.length
       if (next !== 0 && (next < sequential || next > data.length))
         throw new Error(`屏幕返回无效文件偏移：${next}`)
       offset = next || sequential
+      if (sequential === block.length) log('屏幕已确认首包，继续下载')
       if (offset > sequential) log(`屏幕确认相同资源，跳转至 ${offset} / ${data.length} 字节`)
       progress(offset)
     }

@@ -68,6 +68,8 @@ export function validateRequest(request: FirmwareRequest, flash: boolean): void 
   if (request.family === 'esp32' && request.transport !== 'uart')
     throw new Error('ESP32 请使用串口下载')
   if (request.family === 'tft') {
+    if (request.tftUseDetectedBaud !== undefined && typeof request.tftUseDetectedBaud !== 'boolean')
+      throw new Error('串口屏波特率设置无效')
     if (request.transport !== 'uart') throw new Error('串口屏请使用 UART 下载')
     if (request.verify || request.reset || request.eraseAll || request.manualBoot)
       throw new Error('串口屏由设备控制校验与重启，不支持芯片烧录选项')
