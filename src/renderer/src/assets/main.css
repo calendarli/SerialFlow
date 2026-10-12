@@ -3265,7 +3265,7 @@ footer > span:first-child {
   z-index: 1;
 }
 .modbus-register-table td {
-  width: calc((100% - 34px) / 10);
+  width: auto;
 }
 .modbus-register-table td.modbus-alias {
   background: #fbfcfe;
@@ -3441,6 +3441,130 @@ footer > span:first-child {
   height: 1px;
   margin: 4px 3px;
   background: #e2e8f0;
+}
+.modbus-range {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
+  padding: 12px;
+  border-bottom: 1px solid #c3cad4;
+  background: #f7faff;
+}
+.modbus-tables-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 8px;
+  border-bottom: 1px solid #c3cad4;
+  background: #fff;
+}
+.modbus-table-tabs {
+  display: flex;
+  flex: 1;
+  min-width: 180px;
+  gap: 5px;
+  overflow-x: auto;
+}
+.modbus-table-tabs button {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 4px;
+  max-width: 220px;
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: #f4f7fb;
+  color: #526175;
+  text-align: left;
+}
+.modbus-table-tabs button[aria-selected='true'] {
+  border-color: #98c2f8;
+  background: #eef5ff;
+  color: #075aa4;
+}
+.modbus-table-tabs strong {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12px;
+}
+.modbus-table-tabs small {
+  font:
+    11px Consolas,
+    monospace;
+}
+.modbus-table-actions {
+  display: flex;
+  gap: 5px;
+}
+.modbus-table-actions button {
+  padding: 6px 8px;
+  border: 1px solid #c3cad4;
+  border-radius: 5px;
+  background: #fff;
+  color: #172033;
+  font-size: 12px;
+}
+.modbus-table-actions button:disabled {
+  opacity: 0.45;
+}
+.modbus-range label {
+  display: grid;
+  gap: 5px;
+  font-size: 12px;
+}
+.modbus-range input {
+  width: 120px;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid #c3cad4;
+  border-radius: 5px;
+  background: #fff;
+  color: #172033;
+}
+.modbus-range button {
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid #c3cad4;
+  border-radius: 5px;
+  background: #fff;
+  color: #172033;
+}
+.modbus-range span {
+  align-self: center;
+  font:
+    12px Consolas,
+    monospace;
+}
+.modbus-range small,
+.modbus-range p {
+  flex-basis: 100%;
+  margin: 0;
+  color: #526175;
+}
+.modbus-range p {
+  color: #be123c;
+}
+.modbus-context-menu > small {
+  padding: 6px 9px;
+  color: #526175;
+  font-size: 11px;
+}
+.modbus-submenu-root {
+  position: relative;
+}
+.modbus-submenu-root > button {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+.modbus-context-menu.modbus-register-submenu {
+  position: absolute;
+  top: 0;
+  width: 180px;
 }
 @media (max-width: 1180px) {
   .modbus-toolbar {

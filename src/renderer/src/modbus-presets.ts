@@ -1,4 +1,5 @@
 import { appendCrc } from './serial-utils'
+import type { ModbusTable, ModbusTableValues } from './modbus-workspace'
 
 export const modbusFormats = ['hex16', 'uint16', 'int32', 'uint32', 'float32'] as const
 export type ModbusFormat = (typeof modbusFormats)[number]
@@ -20,46 +21,61 @@ export type ModbusPreset = {
 export const modbusPresetKey = 'serialflow.modbus.presets.v1'
 export const modbusShortcutKey = 'serialflow.modbus.shortcuts.v1'
 
+export function captureModbusCommand(
+  values: Array<number | undefined>,
+  definitions: Record<number, { alias?: string; format: ModbusFormat; words: 1 | 2 }>,
+  address: number,
+  wordOrder: ModbusPreset['wordOrder'],
+  startAddress = 0
+): ModbusCommand {
+  const offset = address - startAddress
+  const first = values[offset]
+  if (first === undefined) throw new Error(`地址 ${address} 暂无数据，请先读取寄存器`)
+  if (definitions[address - 1]?.words === 2)
+    throw new Error(`地址 ${address - 1} 的 32 位数据不完整，请先读取寄存器`)
+  const definition = definitions[address]
+  const format = definition?.format || 'uint16'
+  let value = first
+  if (definition?.words === 2) {
+    const second = values[offset + 1]
+    if (second === undefined) throw new Error(`地址 ${address} 的 32 位数据不完整，请先读取寄存器`)
+    const view = new DataView(new ArrayBuffer(4))
+    view.setUint16(0, wordOrder === 'abcd' ? first : second)
+    view.setUint16(2, wordOrder === 'abcd' ? second : first)
+    value =
+      format === 'float32'
+        ? view.getFloat32(0)
+        : format === 'int32'
+          ? view.getInt32(0)
+          : view.getUint32(0)
+  }
+  return {
+    id: crypto.randomUUID(),
+    name: definition?.alias || `寄存器 ${address}`,
+    address: `0x${address.toString(16).toUpperCase()}`,
+    value: Object.is(value, -0) ? '-0' : String(value),
+    format
+  }
+}
+
 export function captureModbusPreset(
   values: Array<number | undefined>,
   definitions: Record<number, { alias?: string; format: ModbusFormat; words: 1 | 2 }>,
   slave: number,
   wordOrder: ModbusPreset['wordOrder'],
-  name: string
+  name: string,
+  startAddress = 0
 ): ModbusPreset {
   const commands: ModbusCommand[] = []
-  for (let address = 0; address < values.length; address++) {
-    const first = values[address]
-    if (first === undefined) continue
-    if (definitions[address - 1]?.words === 2)
-      throw new Error(`地址 ${address - 1} 的 32 位数据不完整，请先读取寄存器`)
-    const definition = definitions[address]
-    const format = definition?.format || 'uint16'
-    let value = first
-    if (definition?.words === 2) {
-      const second = values[address + 1]
-      if (second === undefined)
-        throw new Error(`地址 ${address} 的 32 位数据不完整，请先读取寄存器`)
-      const view = new DataView(new ArrayBuffer(4))
-      view.setUint16(0, wordOrder === 'abcd' ? first : second)
-      view.setUint16(2, wordOrder === 'abcd' ? second : first)
-      value =
-        format === 'float32'
-          ? view.getFloat32(0)
-          : format === 'int32'
-            ? view.getInt32(0)
-            : view.getUint32(0)
-    }
-    const command: ModbusCommand = {
-      id: crypto.randomUUID(),
-      name: definition?.alias || `寄存器 ${address}`,
-      address: String(address),
-      value: Object.is(value, -0) ? '-0' : String(value),
-      format
-    }
+  for (let offset = 0; offset < values.length; offset++) {
+    if (values[offset] === undefined) continue
+    const address = startAddress + offset
+    const command = captureModbusCommand(values, definitions, address, wordOrder, startAddress)
+    // Keep the existing preset export representation for compatibility.
+    command.address = String(address)
     encodeModbusCommand(command, slave, wordOrder)
     commands.push(command)
-    if (definition?.words === 2) address++
+    if (definitions[address]?.words === 2) offset++
   }
   if (!commands.length)
     throw new Error('主页暂无有效寄存器数据，请先读取设备或写入寄存器后再保存配置')
@@ -70,6 +86,36 @@ export function captureModbusPreset(
     wordOrder,
     groups: [{ id: crypto.randomUUID(), name: '主页寄存器', commands }]
   }
+}
+
+export function captureModbusTablesPreset(
+  tables: ModbusTable[],
+  values: ModbusTableValues,
+  slave: number,
+  wordOrder: ModbusPreset['wordOrder'],
+  name: string
+): ModbusPreset {
+  const groups: ModbusGroup[] = []
+  for (const table of tables) {
+    const words = values[table.id] || []
+    if (!words.some((word) => word !== undefined)) continue
+    try {
+      const preset = captureModbusPreset(
+        words,
+        table.definitions,
+        slave,
+        wordOrder,
+        name,
+        table.startAddress
+      )
+      groups.push({ ...preset.groups[0], name: tables.length === 1 ? '主页寄存器' : table.name })
+    } catch (error) {
+      throw new Error(`${table.name}：${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+  if (!groups.length)
+    throw new Error('主页暂无有效寄存器数据，请先读取设备或写入寄存器后再保存配置')
+  return { id: crypto.randomUUID(), name, slave, wordOrder, groups }
 }
 
 export function saveModbusCommand(

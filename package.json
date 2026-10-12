@@ -34,6 +34,7 @@
     "test:ui": "bun scripts/run-ui-smoke.ts",
     "test:ui:updates": "bun scripts/run-ui-smoke.ts updates",
     "test:ui:serial": "bun scripts/run-ui-smoke.ts serial",
+    "test:ui:modbus": "bun scripts/run-ui-smoke.ts modbus",
     "test:ui:remote": "bun scripts/run-ui-smoke.ts remote",
     "test:ui:plot": "bun scripts/run-ui-smoke.ts plot"
   },

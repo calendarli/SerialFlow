@@ -1,17 +1,29 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { appendCrc, base64ToBytes, bytesToHex } from '../serial-utils'
 import { ModbusClient } from '../modbus-client'
 import { ModbusPresets } from './ModbusPresets'
 import { sidebarPageMinimumWidth } from '../sidebar-layout'
 import {
   modbusWorkspaceKey,
-  parseModbusWorkspace,
-  type ModbusWorkspace,
+  modbusTablesWorkspaceKey,
+  parseModbusTablesWorkspace,
+  defaultModbusRange,
+  parseModbusRange,
+  parseModbusMap,
+  exportModbusMap,
+  parseModbusTableCollection,
+  exportModbusTableCollection,
+  updateModbusTableValues,
+  type ModbusRange,
+  type ModbusTable,
+  type ModbusTableValues,
+  type ModbusTablesWorkspace,
   type RegisterDefinition
 } from '../modbus-workspace'
 import {
   encodeModbusCommand,
-  captureModbusPreset,
+  captureModbusTablesPreset,
+  captureModbusCommand,
   runModbusCommands,
   type ModbusCommand,
   type ModbusPreset
@@ -27,12 +39,20 @@ type Props = {
 type WordOrder = 'abcd' | 'cdab'
 type RegisterDialog = {
   mode: 'add' | 'edit' | 'write' | 'delete'
+  tableId: string
   address: number
   alias: string
   format: RegisterDefinition['format']
   value: string
 }
 type ModbusMenu = 'config' | 'communication' | 'operation'
+type TableDialog = {
+  mode: 'add' | 'rename' | 'delete'
+  name: string
+  startAddress: string
+  registerCount: string
+  error: string
+}
 type CommunicationSettings = {
   port: string
   slave: number
@@ -40,9 +60,9 @@ type CommunicationSettings = {
   scanRate: number
 }
 
-const registerCount = 50
 const rowsPerGroup = 10
-const registerDefinitions: Record<number, RegisterDefinition> = {
+const newTableRange = { startAddress: 0, registerCount: 15 }
+const mbpRegisterDefinitions: Record<number, RegisterDefinition> = {
   0: { alias: 'cmd+param', format: 'hex16', words: 1 },
   1: { alias: 'target position', format: 'int32', words: 2 },
   3: { alias: 'speed', format: 'float32', words: 2 },
@@ -118,7 +138,7 @@ function parseMbpAliases(bytes: Uint8Array): Record<number, string> {
   }
   if (!headers.length) throw new Error('未找到 MBP Alias 数据区块')
   const aliases: Record<number, string> = {}
-  headers.slice(0, registerCount / rowsPerGroup).forEach((header, group) => {
+  headers.slice(0, defaultModbusRange.registerCount / rowsPerGroup).forEach((header, group) => {
     const sectionEnd = headers[group + 1] ?? bytes.length
     const cells: number[] = []
     let cellCursor = header + aliasPattern.length
@@ -161,10 +181,11 @@ function makeRequest(
 function registerBytes(
   values: Array<number | undefined>,
   address: number,
-  order: WordOrder
+  order: WordOrder,
+  startAddress: number
 ): Uint8Array | null {
-  const first = values[address]
-  const second = values[address + 1]
+  const first = values[address - startAddress]
+  const second = values[address - startAddress + 1]
   if (first === undefined || second === undefined) return null
   const words = order === 'abcd' ? [first, second] : [second, first]
   return Uint8Array.from([...word(words[0]), ...word(words[1])])
@@ -175,9 +196,10 @@ function formatRegister(
   address: number,
   definition: RegisterDefinition | undefined,
   definitions: Record<number, RegisterDefinition>,
-  order: WordOrder
+  order: WordOrder,
+  startAddress: number
 ): string {
-  const value = values[address]
+  const value = values[address - startAddress]
   if (value === undefined) return '--'
   if (!definition) {
     const previous = definitions[address - 1]
@@ -185,7 +207,7 @@ function formatRegister(
   }
   if (definition.format === 'hex16') return `0x${value.toString(16).toUpperCase().padStart(4, '0')}`
   if (definition.words === 1) return String(value)
-  const bytes = registerBytes(values, address, order)
+  const bytes = registerBytes(values, address, order, startAddress)
   if (!bytes) return '--'
   const view = new DataView(bytes.buffer)
   if (definition.format === 'float32') {
@@ -271,8 +293,9 @@ export function ModbusPanel({
   }
   const [restored] = useState(() => {
     try {
-      const raw = localStorage.getItem(modbusWorkspaceKey)
-      return { data: raw ? parseModbusWorkspace(raw) : null, error: '' }
+      const raw =
+        localStorage.getItem(modbusTablesWorkspaceKey) ?? localStorage.getItem(modbusWorkspaceKey)
+      return { data: raw ? parseModbusTablesWorkspace(raw) : null, error: '' }
     } catch {
       return { data: null, error: 'Modbus 本地数据读取失败，已使用默认映射' }
     }
@@ -282,19 +305,65 @@ export function ModbusPanel({
   const [slave, setSlave] = useState(1)
   const functionCode = 3
   const [wordOrder, setWordOrder] = useState<WordOrder>('cdab')
-  const [definitions, setDefinitions] = useState<Record<number, RegisterDefinition>>(
-    () => restored.data?.definitions ?? { ...registerDefinitions }
+  const [tables, setTables] = useState<ModbusTable[]>(
+    () =>
+      restored.data?.tables ?? [
+        {
+          id: crypto.randomUUID(),
+          name: '表 1',
+          mapName: '表 1',
+          ...newTableRange,
+          definitions: {}
+        }
+      ]
   )
+  const [activeTableId, setActiveTableId] = useState(
+    () => restored.data?.activeTableId ?? tables[0].id
+  )
+  const activeTable = tables.find((table) => table.id === activeTableId) || tables[0]
+  const { startAddress, registerCount, definitions, mapName } = activeTable
+  const tablesRef = useRef(tables)
+  useEffect(() => {
+    tablesRef.current = tables
+  }, [tables])
+  const setDefinitions = (
+    next:
+      | Record<number, RegisterDefinition>
+      | ((current: Record<number, RegisterDefinition>) => Record<number, RegisterDefinition>)
+  ): void => {
+    setTables((current) =>
+      current.map((table) =>
+        table.id === activeTable.id
+          ? { ...table, definitions: typeof next === 'function' ? next(table.definitions) : next }
+          : table
+      )
+    )
+  }
+  const setMapName = (name: string): void => {
+    setTables((current) =>
+      current.map((table) => (table.id === activeTable.id ? { ...table, mapName: name } : table))
+    )
+  }
+  const [tableDialog, setTableDialog] = useState<TableDialog | null>(null)
   const [registerDialog, setRegisterDialog] = useState<RegisterDialog | null>(null)
   const [openMenu, setOpenMenu] = useState<ModbusMenu | null>(null)
   const [settingsDialog, setSettingsDialog] = useState<CommunicationSettings | null>(null)
-  const [mapName, setMapName] = useState(restored.data?.mapName ?? 'vsmd104_105_x4.mbp')
   const [scanRate, setScanRate] = useState(1000)
   const [polling, setPolling] = useState(false)
-  const [values, setValues] = useState<Array<number | undefined>>(() =>
-    Array.from({ length: registerCount })
-  )
-  const [selectedAddress, setSelectedAddress] = useState(0)
+  const [rangeInput, setRangeInput] = useState(() => ({
+    startAddress: String(startAddress),
+    registerCount: String(registerCount)
+  }))
+  const [rangeError, setRangeError] = useState('')
+  const [shortcutSubmenu, setShortcutSubmenu] = useState(false)
+  const [shortcutDraft, setShortcutDraft] = useState<ModbusCommand | null>(null)
+  const [tableValues, setTableValues] = useState<ModbusTableValues>({})
+  const values =
+    tableValues[activeTable.id] || Array.from<number | undefined>({ length: registerCount })
+  const [tableErrors, setTableErrors] = useState<Record<string, string>>({})
+  const [readBusy, setReadBusy] = useState(false)
+  const readCycle = useRef({ busy: false, cancelled: false })
+  const [selectedAddress, setSelectedAddress] = useState(startAddress)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; address: number } | null>(
     null
   )
@@ -314,10 +383,10 @@ export function ModbusPanel({
   const targetPort = ports.includes(port) ? port : ports[0] || ''
   const normalizedSlave = clampInteger(slave, 1, 247)
   const normalizedRate = clampInteger(scanRate, 50, 60000)
-  const workspace: ModbusWorkspace = {
-    version: 1,
-    mapName,
-    definitions
+  const workspace: ModbusTablesWorkspace = {
+    version: 2,
+    tables,
+    activeTableId: activeTable.id
   }
   const serializedWorkspace = JSON.stringify(workspace)
   const initialWorkspace = useRef(serializedWorkspace)
@@ -325,7 +394,7 @@ export function ModbusPanel({
     // Preserve unreadable storage until the user changes the workspace.
     if (restored.error && serializedWorkspace === initialWorkspace.current) return
     try {
-      localStorage.setItem(modbusWorkspaceKey, serializedWorkspace)
+      localStorage.setItem(modbusTablesWorkspaceKey, serializedWorkspace)
       setStorageError('')
     } catch {
       setStorageError('Modbus 数据保存失败，请检查本地存储空间')
@@ -336,6 +405,7 @@ export function ModbusPanel({
     if (!contextMenu && !openMenu) return
     const close = (): void => {
       setContextMenu(null)
+      setShortcutSubmenu(false)
       setOpenMenu(null)
     }
     const closeOnEscape = (event: KeyboardEvent): void => {
@@ -372,14 +442,21 @@ export function ModbusPanel({
     setMessage(settingsDialog.port ? 'Communication settings updated' : 'No connection')
   }
 
-  const readRequest = useMemo(
-    () => makeRequest(normalizedSlave, functionCode, 0, registerCount),
-    [functionCode, normalizedSlave]
-  )
+  useEffect(() => {
+    setRangeInput({ startAddress: String(startAddress), registerCount: String(registerCount) })
+    setRangeError('')
+    setSelectedAddress(startAddress)
+    setRegisterDialog(null)
+    setContextMenu(null)
+  }, [activeTable.id, startAddress, registerCount])
 
   useEffect(() => {
     const client = clientRef.current
-    setValues(Array.from({ length: registerCount }))
+    setTableValues({})
+    setTableErrors({})
+    setLastResponseMs(null)
+    setRegisterDialog(null)
+    setContextMenu(null)
     const connection = connectionRevision.current
     const offData = window.api.onData(({ path, chunks }) => {
       if (path === targetPort) for (const chunk of chunks) client.push(chunk)
@@ -387,6 +464,7 @@ export function ModbusPanel({
     const offStatus = window.api.onStatus(({ path, open }) => {
       if (path === targetPort && !open) {
         connection.value++
+        readCycle.current.cancelled = true
         client.cancel('Modbus disconnected')
         setPolling(false)
         setMessage('No connection')
@@ -394,36 +472,118 @@ export function ModbusPanel({
     })
     return () => {
       connection.value++
+      readCycle.current.cancelled = true
       client.cancel()
       offData()
       offStatus()
     }
   }, [targetPort, normalizedSlave])
 
-  const sendRead = async (): Promise<void> => {
-    if (!targetPort || clientRef.current.busy || presetRun.current.busy) return
-    const revision = connectionRevision.current.value
-    setMessage('Waiting for response...')
+  const resetRange = (range: ModbusRange): void => {
+    connectionRevision.current.value++
+    clientRef.current.cancel('Modbus register range changed')
+    setPolling(false)
+    setTables((current) =>
+      current.map((table) =>
+        table.id === activeTable.id
+          ? { ...table, startAddress: range.startAddress, registerCount: range.registerCount }
+          : table
+      )
+    )
+    setRangeInput({
+      startAddress: String(range.startAddress),
+      registerCount: String(range.registerCount)
+    })
+    setTableValues((current) => ({
+      ...current,
+      [activeTable.id]: Array.from({ length: range.registerCount })
+    }))
+    setTableErrors((current) => ({ ...current, [activeTable.id]: '' }))
+    setSelectedAddress(range.startAddress)
+    setLastResponseMs(null)
+    setRegisterDialog(null)
+    setContextMenu(null)
+    setRangeError('')
+  }
+
+  const applyRange = (): void => {
+    try {
+      const range = parseModbusRange(rangeInput.startAddress, rangeInput.registerCount)
+      if (clientRef.current.busy || presetRun.current.busy || readCycle.current.busy)
+        throw new Error('请等待当前 Modbus 读写完成后再修改范围')
+      resetRange(range)
+      setMessage(
+        `读取范围已更新：${range.startAddress}–${range.startAddress + range.registerCount - 1}`
+      )
+    } catch (error) {
+      setRangeError(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  const readTable = async (table: ModbusTable, revision: number): Promise<string | null> => {
+    const readRequest = makeRequest(
+      normalizedSlave,
+      functionCode,
+      table.startAddress,
+      table.registerCount
+    )
     try {
       const frame = await clientRef.current.request(readRequest, async () => {
+        if (revision !== connectionRevision.current.value) return false
         const success = await onSendRef.current(bytesToHex(readRequest), true, targetPort)
         if (success && revision === connectionRevision.current.value)
           setTxCount((count) => count + 1)
         return success
       })
-      if (revision !== connectionRevision.current.value) return
-      setValues(
-        Array.from(
-          { length: registerCount },
-          (_, index) => (frame[3 + index * 2] << 8) | frame[4 + index * 2]
-        )
+      if (revision !== connectionRevision.current.value) return null
+      const words = Array.from(
+        { length: table.registerCount },
+        (_, index) => (frame[3 + index * 2] << 8) | frame[4 + index * 2]
       )
+      setTableValues((current) =>
+        updateModbusTableValues(tablesRef.current, current, table.startAddress, words)
+      )
+      setTableErrors((current) => ({ ...current, [table.id]: '' }))
       setLastResponseMs(Date.now())
-      setMessage('Connected')
+      return null
     } catch (error) {
-      if (revision !== connectionRevision.current.value) return
+      if (revision !== connectionRevision.current.value) return null
+      const message = error instanceof Error ? error.message : String(error)
+      setTableErrors((current) => ({ ...current, [table.id]: message }))
       setErrorCount((count) => count + 1)
-      setMessage(error instanceof Error ? error.message : String(error))
+      return `${table.name}：${message}`
+    }
+  }
+
+  const sendRead = async (all = false, stopped: () => boolean = () => false): Promise<void> => {
+    if (!targetPort || clientRef.current.busy || presetRun.current.busy || readCycle.current.busy)
+      return
+    const revision = connectionRevision.current.value
+    const targets = all ? tablesRef.current : [activeTable]
+    readCycle.current = { busy: true, cancelled: false }
+    setReadBusy(true)
+    setMessage('Waiting for response...')
+    try {
+      const errors: string[] = []
+      for (const table of targets) {
+        if (
+          stopped() ||
+          readCycle.current.cancelled ||
+          revision !== connectionRevision.current.value
+        )
+          return
+        const error = await readTable(table, revision)
+        if (error) errors.push(error)
+      }
+      if (
+        revision === connectionRevision.current.value &&
+        !readCycle.current.cancelled &&
+        !stopped()
+      )
+        setMessage(errors.length ? errors.join('；') : 'Connected')
+    } finally {
+      readCycle.current.busy = false
+      setReadBusy(false)
     }
   }
 
@@ -432,7 +592,7 @@ export function ModbusPanel({
     let cancelled = false
     let timer: ReturnType<typeof setTimeout>
     const poll = async (): Promise<void> => {
-      await sendRead()
+      await sendRead(true, () => cancelled)
       if (!cancelled) timer = setTimeout(() => void poll(), normalizedRate)
     }
     timer = setTimeout(() => void poll(), 0)
@@ -440,24 +600,36 @@ export function ModbusPanel({
       cancelled = true
       clearTimeout(timer)
     }
-    // The callback's connection and request are fixed for this polling session.
+    // Read every table sequentially; switching the visible tab does not restart a cycle.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [polling, readRequest, normalizedRate, targetPort])
+  }, [polling, normalizedSlave, normalizedRate, targetPort])
 
   const writeRegister = async (address: number, input: string): Promise<void> => {
     if (presetRun.current.busy) return setMessage('正在写入设备配置，请等待完成')
+    if (readCycle.current.busy) return setMessage('请等待当前 Modbus 读取完成后再写入')
     if (!targetPort) return setMessage('No connection')
     const definition = definitions[address] || {
       format: 'uint16' as const,
       words: 1 as const
     }
+    if (address < startAddress || address + definition.words > startAddress + registerCount)
+      return setMessage('32 位数据需要当前读取范围内的两个连续寄存器')
     const numeric = Number(input)
     const integerFormat = definition.format !== 'float32'
-    const minimum = definition.format === 'int32' ? -0x80000000 : 0
+    const minimum =
+      definition.format === 'float32' ? -Infinity : definition.format === 'int32' ? -0x80000000 : 0
     const maximum =
-      definition.format === 'int32' ? 0x7fffffff : definition.words === 2 ? 0xffffffff : 0xffff
+      definition.format === 'float32'
+        ? Infinity
+        : definition.format === 'int32'
+          ? 0x7fffffff
+          : definition.words === 2
+            ? 0xffffffff
+            : 0xffff
     if (
+      !input.trim() ||
       !Number.isFinite(numeric) ||
+      (definition.format === 'float32' && !Number.isFinite(Math.fround(numeric))) ||
       (integerFormat && !Number.isInteger(numeric)) ||
       numeric < minimum ||
       numeric > maximum
@@ -479,15 +651,18 @@ export function ModbusPanel({
         return success
       })
       if (revision !== connectionRevision.current.value) return
-      setValues((currentValues) =>
-        currentValues.map((value, index) => {
-          const offset = index - address
-          return offset >= 0 && offset < encodedWords.length ? encodedWords[offset] : value
-        })
+      setTableValues((current) =>
+        updateModbusTableValues(tablesRef.current, current, address, encodedWords)
       )
       setLastResponseMs(Date.now())
       setMessage(`Register ${String(address).padStart(5, '0')} written`)
-      setRegisterDialog(null)
+      setRegisterDialog((current) =>
+        current?.mode === 'write' &&
+        current.tableId === activeTable.id &&
+        current.address === address
+          ? null
+          : current
+      )
     } catch (error) {
       if (revision !== connectionRevision.current.value) return
       setErrorCount((count) => count + 1)
@@ -497,7 +672,7 @@ export function ModbusPanel({
 
   const runPreset = async (preset: ModbusPreset, commands: ModbusCommand[]): Promise<void> => {
     if (!targetPort || presetRun.current.busy) return
-    if (clientRef.current.busy) {
+    if (clientRef.current.busy || readCycle.current.busy) {
       setMessage('请等待当前 Modbus 响应后再写入配置')
       return
     }
@@ -533,10 +708,8 @@ export function ModbusPanel({
           })
           if (revision !== connectionRevision.current.value) throw new Error('连接已变化')
           if (preset.slave === normalizedSlave)
-            setValues((current) =>
-              current.map((value, index) =>
-                index >= address && index < address + words.length ? words[index - address] : value
-              )
+            setTableValues((current) =>
+              updateModbusTableValues(tablesRef.current, current, address, words)
             )
           setLastResponseMs(Date.now())
         },
@@ -564,57 +737,39 @@ export function ModbusPanel({
     try {
       const selected = await window.api.openModbusMap()
       if (!selected) return
+      if (clientRef.current.busy || presetRun.current.busy || readCycle.current.busy)
+        throw new Error('请停止轮询并等待当前 Modbus 读写完成后再导入配置')
       const bytes = base64ToBytes(selected.base64)
       if (selected.name.toLowerCase().endsWith('.json')) {
-        const config = JSON.parse(new TextDecoder().decode(bytes)) as {
-          format?: string
-          version?: number
-          slave?: number
-          scanRate?: number
-          wordOrder?: WordOrder
-          registers?: Array<{
-            address?: number
-            alias?: string
-            format?: RegisterDefinition['format']
-          }>
+        const raw = new TextDecoder().decode(bytes)
+        if (JSON.parse(raw)?.version === 2) {
+          const { workspace, settings } = parseModbusTableCollection(raw)
+          connectionRevision.current.value++
+          setPolling(false)
+          setTables(workspace.tables)
+          setActiveTableId(workspace.activeTableId)
+          setTableValues({})
+          setTableErrors({})
+          setLastResponseMs(null)
+          setRegisterDialog(null)
+          setContextMenu(null)
+          if (settings.slave !== undefined) setSlave(settings.slave)
+          if (settings.scanRate !== undefined) setScanRate(settings.scanRate)
+          if (settings.wordOrder !== undefined) setWordOrder(settings.wordOrder)
+          setMessage(`已导入 ${workspace.tables.length} 张寄存器表`)
+          return
         }
-        if (
-          config.format !== 'serialflow-modbus-map' ||
-          config.version !== 1 ||
-          !Array.isArray(config.registers)
-        )
-          throw new Error('不是受支持的 SerialFlow Modbus 配置')
-        const validFormats = new Set<RegisterDefinition['format']>([
-          'hex16',
-          'uint16',
-          'int32',
-          'uint32',
-          'float32'
-        ])
-        const next: Record<number, RegisterDefinition> = {}
-        for (const item of config.registers) {
-          const address = Number(item.address)
-          if (!Number.isInteger(address) || address < 0 || address >= registerCount) continue
-          const format = validFormats.has(item.format as RegisterDefinition['format'])
-            ? (item.format as RegisterDefinition['format'])
-            : 'uint16'
-          next[address] = {
-            alias: typeof item.alias === 'string' ? item.alias : '',
-            format,
-            words: format === 'hex16' || format === 'uint16' ? 1 : 2
-          }
-        }
+        const { definitions: next, settings } = parseModbusMap(raw)
+        resetRange(settings)
         setDefinitions(next)
-        if (Number.isInteger(config.slave)) setSlave(clampInteger(Number(config.slave), 1, 247))
-        if (Number.isInteger(config.scanRate))
-          setScanRate(clampInteger(Number(config.scanRate), 50, 60000))
-        if (config.wordOrder === 'abcd' || config.wordOrder === 'cdab')
-          setWordOrder(config.wordOrder)
+        if (settings.slave !== undefined) setSlave(settings.slave)
+        if (settings.scanRate !== undefined) setScanRate(settings.scanRate)
+        if (settings.wordOrder !== undefined) setWordOrder(settings.wordOrder)
         setMessage(`Imported ${Object.keys(next).length} register definitions`)
       } else {
         const aliases = parseMbpAliases(bytes)
         const next = Object.fromEntries(
-          Object.entries(registerDefinitions).map(([address, definition]) => [
+          Object.entries(mbpRegisterDefinitions).map(([address, definition]) => [
             address,
             { ...definition, alias: aliases[Number(address)] || '' }
           ])
@@ -622,6 +777,7 @@ export function ModbusPanel({
         for (const [address, alias] of Object.entries(aliases))
           if (alias && !next[Number(address)])
             next[Number(address)] = { alias, format: 'uint16', words: 1 }
+        resetRange(defaultModbusRange)
         setDefinitions(next)
         setMessage(`Imported ${Object.values(aliases).filter(Boolean).length} aliases`)
       }
@@ -632,22 +788,15 @@ export function ModbusPanel({
     }
   }
 
-  const exportMap = async (): Promise<void> => {
-    const path = await window.api.saveModbusMap({
-      format: 'serialflow-modbus-map',
-      version: 1,
-      name: mapName,
-      slave: normalizedSlave,
-      functionCode,
-      scanRate: normalizedRate,
-      wordOrder,
-      registerCount,
-      registers: Object.entries(definitions)
-        .map(([address, definition]) => ({ address: Number(address), ...definition }))
-        .sort((left, right) => left.address - right.address)
-    })
+  const exportMap = async (currentOnly = false): Promise<void> => {
+    const communication = { slave: normalizedSlave, scanRate: normalizedRate, wordOrder }
+    const path = await window.api.saveModbusMap(
+      tables.length > 1 && !currentOnly
+        ? exportModbusTableCollection(tables, activeTable.id, communication)
+        : exportModbusMap(mapName, definitions, { ...communication, startAddress, registerCount })
+    )
     if (path) {
-      setMapName(path.split(/[\\/]/).at(-1) || mapName)
+      if (currentOnly || tables.length === 1) setMapName(path.split(/[\\/]/).at(-1) || mapName)
       setMessage('Modbus configuration exported')
     }
   }
@@ -664,11 +813,17 @@ export function ModbusPanel({
 
   const openRegisterDialog = (mode: RegisterDialog['mode'], address: number): void => {
     const definition = definitions[address]
-    const displayed = definition
-      ? formatRegister(values, address, definition, definitions, wordOrder)
-      : '0'
+    const displayed = formatRegister(
+      values,
+      address,
+      definition,
+      definitions,
+      wordOrder,
+      startAddress
+    )
     setRegisterDialog({
       mode,
+      tableId: activeTable.id,
       address,
       alias: definition?.alias || `register ${address}`,
       format: definition?.format || 'uint16',
@@ -681,7 +836,8 @@ export function ModbusPanel({
     const words = registerDialog.format === 'hex16' || registerDialog.format === 'uint16' ? 1 : 2
     if (
       words === 2 &&
-      (registerDialog.address >= registerCount - 1 || definitions[registerDialog.address + 1])
+      (registerDialog.address >= startAddress + registerCount - 1 ||
+        definitions[registerDialog.address + 1])
     ) {
       setMessage('Two-register data requires an empty following address')
       return
@@ -699,6 +855,122 @@ export function ModbusPanel({
     setMessage(
       `Register ${String(registerDialog.address).padStart(5, '0')} ${registerDialog.mode === 'add' ? 'added' : 'updated'}`
     )
+  }
+
+  const createShortcut = (address: number, useCurrentValue: boolean): void => {
+    try {
+      const definition = definitions[address]
+      const command: ModbusCommand = useCurrentValue
+        ? captureModbusCommand(values, definitions, address, wordOrder, startAddress)
+        : {
+            id: crypto.randomUUID(),
+            name: definition?.alias || `寄存器 ${address}`,
+            address: `0x${address.toString(16).toUpperCase()}`,
+            value: '',
+            format: definition?.format || 'uint16'
+          }
+      if (useCurrentValue) encodeModbusCommand(command, normalizedSlave, wordOrder)
+      setShortcutDraft(command)
+      setSidebarTab('shortcuts')
+      onCollapsedChange(false)
+      setContextMenu(null)
+      setShortcutSubmenu(false)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  const openRegisterMenu = (event: React.MouseEvent, address: number): void => {
+    event.preventDefault()
+    setSelectedAddress(address)
+    setShortcutSubmenu(false)
+    setContextMenu({
+      x: Math.max(4, Math.min(event.clientX, window.innerWidth - 200)),
+      y: Math.max(4, Math.min(event.clientY, window.innerHeight - 245)),
+      address
+    })
+  }
+
+  const canWriteRegister = (address: number): boolean =>
+    definitions[address - 1]?.words !== 2 &&
+    address + (definitions[address]?.words || 1) <= startAddress + registerCount
+
+  const groupCount = Math.ceil(registerCount / rowsPerGroup)
+
+  const openTableDialog = (mode: TableDialog['mode']): void => {
+    let index = tables.length + 1
+    while (tables.some((table) => table.name === `表 ${index}`)) index++
+    setTableDialog({
+      mode,
+      name: mode === 'add' ? `表 ${index}` : activeTable.name,
+      startAddress:
+        mode === 'add'
+          ? String(Math.min(0xffff, startAddress + registerCount))
+          : String(startAddress),
+      registerCount:
+        mode === 'add'
+          ? String(
+              Math.min(
+                newTableRange.registerCount,
+                0x10000 - Math.min(0xffff, startAddress + registerCount)
+              )
+            )
+          : String(registerCount),
+      error: ''
+    })
+  }
+
+  const saveTableDialog = (): void => {
+    if (!tableDialog) return
+    try {
+      if (clientRef.current.busy || presetRun.current.busy || readCycle.current.busy)
+        throw new Error('请等待当前 Modbus 读写完成后再修改寄存器表')
+      if (tableDialog.mode === 'delete') {
+        if (tables.length === 1) throw new Error('至少保留一张寄存器表')
+        const remaining = tables.filter((table) => table.id !== activeTable.id)
+        setPolling(false)
+        setTables(remaining)
+        setActiveTableId(remaining[0].id)
+        setTableValues((current) => {
+          const next = { ...current }
+          delete next[activeTable.id]
+          return next
+        })
+        setTableErrors((current) => {
+          const next = { ...current }
+          delete next[activeTable.id]
+          return next
+        })
+        setMessage(`已删除寄存器表「${activeTable.name}」`)
+      } else {
+        const name = tableDialog.name.trim()
+        if (!name) throw new Error('请输入寄存器表名称')
+        if (tableDialog.mode === 'add') {
+          const range = parseModbusRange(tableDialog.startAddress, tableDialog.registerCount)
+          const table: ModbusTable = {
+            id: crypto.randomUUID(),
+            name,
+            mapName: name,
+            ...range,
+            definitions: {}
+          }
+          setPolling(false)
+          setTables((current) => [...current, table])
+          setActiveTableId(table.id)
+          setMessage(`已新增寄存器表「${name}」`)
+        } else {
+          setTables((current) =>
+            current.map((table) => (table.id === activeTable.id ? { ...table, name } : table))
+          )
+        }
+      }
+      setTableDialog(null)
+    } catch (error) {
+      setTableDialog({
+        ...tableDialog,
+        error: error instanceof Error ? error.message : String(error)
+      })
+    }
   }
 
   return (
@@ -802,6 +1074,16 @@ export function ModbusPanel({
                 >
                   导出配置…
                 </button>
+                {tables.length > 1 && (
+                  <button
+                    onClick={() => {
+                      setOpenMenu(null)
+                      void exportMap(true)
+                    }}
+                  >
+                    导出当前表…
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -830,7 +1112,7 @@ export function ModbusPanel({
                 onPointerDown={(event) => event.stopPropagation()}
               >
                 <button
-                  disabled={!targetPort || polling || presetBusy}
+                  disabled={!targetPort || polling || presetBusy || readBusy}
                   onClick={() => {
                     setOpenMenu(null)
                     void sendRead()
@@ -839,9 +1121,22 @@ export function ModbusPanel({
                   读取一次
                 </button>
                 <button
+                  disabled={!targetPort || polling || presetBusy || readBusy}
+                  onClick={() => {
+                    setOpenMenu(null)
+                    void sendRead(true)
+                  }}
+                >
+                  读取所有表
+                </button>
+                <button
                   disabled={!targetPort || presetBusy}
                   onClick={() => {
                     setOpenMenu(null)
+                    if (polling) {
+                      readCycle.current.cancelled = true
+                      setMessage('轮询已停止，等待当前响应结束')
+                    }
                     setPolling((current) => !current)
                   }}
                 >
@@ -926,6 +1221,8 @@ export function ModbusPanel({
             connected={!!targetPort}
             busy={presetBusy}
             target={targetPort}
+            commandDraft={shortcutDraft}
+            onCommandDraftConsumed={setShortcutDraft}
             onRun={runPreset}
             onCancel={() => {
               presetRun.current.cancelled = true
@@ -943,12 +1240,12 @@ export function ModbusPanel({
           <ModbusPresets
             mode="config"
             onCapture={() =>
-              captureModbusPreset(
-                values,
-                definitions,
+              captureModbusTablesPreset(
+                tables,
+                tableValues,
                 normalizedSlave,
                 wordOrder,
-                `${mapName.replace(/\.[^.]+$/, '')} · ID ${normalizedSlave}`
+                `${tables.length > 1 ? 'Modbus 多表' : mapName.replace(/\.[^.]+$/, '')} · ID ${normalizedSlave}`
               )
             }
             slave={normalizedSlave}
@@ -964,66 +1261,285 @@ export function ModbusPanel({
         </div>
       </aside>
       <div className="modbus-table-wrap">
-        <table className="modbus-register-table">
-          <thead>
-            <tr>
-              <th aria-label="行号" />
-              {Array.from({ length: registerCount / rowsPerGroup }, (_, group) => (
-                <th colSpan={2} key={group}>
-                  <span>Alias</span>
-                  <strong>{String(group * rowsPerGroup).padStart(5, '0')}</strong>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {Array.from({ length: rowsPerGroup }, (_, row) => (
-              <tr key={row}>
-                <th>{row}</th>
-                {Array.from({ length: registerCount / rowsPerGroup }, (_, group) => {
-                  const address = group * rowsPerGroup + row
-                  const definition = definitions[address]
-                  return (
-                    <RegisterCells
-                      key={address}
-                      address={address}
-                      alias={definition?.alias || ''}
-                      value={formatRegister(values, address, definition, definitions, wordOrder)}
-                      selected={selectedAddress === address}
-                      onSelect={setSelectedAddress}
-                      onContextMenu={(event) => {
-                        event.preventDefault()
-                        setSelectedAddress(address)
-                        setContextMenu({
-                          x: Math.min(event.clientX, window.innerWidth - 190),
-                          y: Math.min(event.clientY, window.innerHeight - 190),
-                          address
-                        })
-                      }}
-                      onWrite={
-                        definitions[address - 1]?.words === 2
-                          ? undefined
-                          : () => openRegisterDialog('write', address)
-                      }
-                    />
-                  )
-                })}
-              </tr>
+        <div className="modbus-tables-toolbar">
+          <nav
+            className="modbus-table-tabs"
+            role="tablist"
+            aria-label="寄存器表"
+            onKeyDown={(event) => {
+              if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+              event.preventDefault()
+              const index = tables.findIndex((table) => table.id === activeTable.id)
+              const next =
+                event.key === 'Home'
+                  ? 0
+                  : event.key === 'End'
+                    ? tables.length - 1
+                    : (index + (event.key === 'ArrowRight' ? 1 : -1) + tables.length) %
+                      tables.length
+              setActiveTableId(tables[next].id)
+              event.currentTarget.querySelectorAll<HTMLButtonElement>('[role=tab]')[next]?.focus()
+            }}
+          >
+            {tables.map((table) => (
+              <button
+                key={table.id}
+                id={`modbus-table-${table.id}`}
+                role="tab"
+                aria-selected={table.id === activeTable.id}
+                aria-controls="modbus-active-table"
+                tabIndex={table.id === activeTable.id ? 0 : -1}
+                title={tableErrors[table.id] || `${table.name} · ${table.registerCount} 个寄存器`}
+                onClick={() => setActiveTableId(table.id)}
+              >
+                <strong>
+                  {table.name}
+                  {tableErrors[table.id] ? ' ⚠' : ''}
+                </strong>
+                <small>
+                  0x{table.startAddress.toString(16).toUpperCase()} · {table.registerCount} 个
+                </small>
+              </button>
             ))}
-          </tbody>
-        </table>
+          </nav>
+          <div className="modbus-table-actions">
+            <button
+              type="button"
+              disabled={readBusy || presetBusy}
+              onClick={() => openTableDialog('add')}
+            >
+              新增表
+            </button>
+            <button
+              type="button"
+              disabled={readBusy || presetBusy}
+              onClick={() => openTableDialog('rename')}
+            >
+              重命名表
+            </button>
+            <button
+              type="button"
+              disabled={tables.length === 1 || readBusy || presetBusy}
+              onClick={() => openTableDialog('delete')}
+            >
+              删除表
+            </button>
+          </div>
+        </div>
+        <div
+          id="modbus-active-table"
+          role="tabpanel"
+          aria-labelledby={`modbus-table-${activeTable.id}`}
+        >
+          <form
+            className="modbus-range"
+            onSubmit={(event) => {
+              event.preventDefault()
+              applyRange()
+            }}
+          >
+            <label>
+              起始地址
+              <input
+                aria-label="起始地址"
+                placeholder="0 或 0x103"
+                value={rangeInput.startAddress}
+                onChange={(event) =>
+                  setRangeInput({ ...rangeInput, startAddress: event.target.value })
+                }
+              />
+            </label>
+            <label>
+              寄存器数量
+              <input
+                aria-label="寄存器数量"
+                inputMode="numeric"
+                value={rangeInput.registerCount}
+                onChange={(event) =>
+                  setRangeInput({ ...rangeInput, registerCount: event.target.value })
+                }
+              />
+            </label>
+            <button type="submit" disabled={presetBusy}>
+              应用范围
+            </button>
+            <span>
+              {startAddress}–{startAddress + registerCount - 1} · 0x
+              {startAddress.toString(16).toUpperCase()}–0x
+              {(startAddress + registerCount - 1).toString(16).toUpperCase()}
+            </span>
+            <small>地址从 0 开始，支持十进制 / 0x 十六进制；数量 1–125</small>
+            {tables.length > 1 && (
+              <small>读取一次仅更新当前表；轮询依次读取全部 {tables.length} 张表</small>
+            )}
+            {rangeError && <p role="alert">{rangeError}</p>}
+            {tableErrors[activeTable.id] && (
+              <p role="alert">
+                {activeTable.name}：{tableErrors[activeTable.id]}
+              </p>
+            )}
+          </form>
+          <table
+            className="modbus-register-table"
+            style={{ minWidth: Math.max(300, 34 + groupCount * 190) }}
+          >
+            <thead>
+              <tr>
+                <th aria-label="行号" />
+                {Array.from({ length: groupCount }, (_, group) => (
+                  <th colSpan={2} key={group}>
+                    <span>Alias</span>
+                    <strong
+                      title={`0x${(startAddress + group * rowsPerGroup).toString(16).toUpperCase()}`}
+                      onContextMenu={(event) =>
+                        openRegisterMenu(event, startAddress + group * rowsPerGroup)
+                      }
+                    >
+                      {String(startAddress + group * rowsPerGroup).padStart(5, '0')}
+                    </strong>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {Array.from({ length: Math.min(rowsPerGroup, registerCount) }, (_, row) => (
+                <tr key={row}>
+                  <th>{row}</th>
+                  {Array.from({ length: groupCount }, (_, group) => {
+                    const address = startAddress + group * rowsPerGroup + row
+                    if (address >= startAddress + registerCount)
+                      return <td key={address} colSpan={2} />
+                    const definition = definitions[address]
+                    return (
+                      <RegisterCells
+                        key={address}
+                        address={address}
+                        alias={definition?.alias || ''}
+                        value={formatRegister(
+                          values,
+                          address,
+                          definition,
+                          definitions,
+                          wordOrder,
+                          startAddress
+                        )}
+                        selected={selectedAddress === address}
+                        onSelect={setSelectedAddress}
+                        onContextMenu={(event) => openRegisterMenu(event, address)}
+                        onWrite={
+                          !canWriteRegister(address)
+                            ? undefined
+                            : () => openRegisterDialog('write', address)
+                        }
+                      />
+                    )
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
       <footer className="modbus-hint">
-        右键寄存器可新增、编辑、写入或删除；双击数值使用 H06/H10 写入；支持 MBP 导入和 JSON
-        配置导入/导出。寄存器地址、命名及数据类型自动保存，数值不持久化。
+        右键寄存器可新增、编辑、写入、删除或创建快捷指令；双击数值使用 H06/H10 写入；支持 MBP 导入和
+        JSON 配置导入/导出。各表独立保存范围和定义，共用通信设置；数值不持久化。
         {storageError && <span role="alert">{storageError}</span>}
       </footer>
+      {tableDialog && (
+        <div className="modbus-dialog-backdrop" onMouseDown={() => setTableDialog(null)}>
+          <form
+            className="modbus-dialog"
+            role="dialog"
+            aria-label="寄存器表设置"
+            onMouseDown={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') setTableDialog(null)
+            }}
+            onSubmit={(event) => {
+              event.preventDefault()
+              saveTableDialog()
+            }}
+          >
+            <header>
+              <strong>
+                {tableDialog.mode === 'add'
+                  ? '新增寄存器表'
+                  : tableDialog.mode === 'rename'
+                    ? '重命名寄存器表'
+                    : '删除寄存器表'}
+              </strong>
+            </header>
+            {tableDialog.mode === 'delete' ? (
+              <p className="warning">
+                删除「{activeTable.name}」及其映射定义？其他表和快捷指令会保留。
+              </p>
+            ) : (
+              <label>
+                表名称
+                <input
+                  autoFocus
+                  aria-label="表名称"
+                  value={tableDialog.name}
+                  onChange={(event) => setTableDialog({ ...tableDialog, name: event.target.value })}
+                />
+              </label>
+            )}
+            {tableDialog.mode === 'add' && (
+              <>
+                <label>
+                  起始地址
+                  <input
+                    aria-label="新表起始地址"
+                    value={tableDialog.startAddress}
+                    onChange={(event) =>
+                      setTableDialog({ ...tableDialog, startAddress: event.target.value })
+                    }
+                  />
+                </label>
+                <label>
+                  寄存器数量
+                  <input
+                    aria-label="新表寄存器数量"
+                    inputMode="numeric"
+                    value={tableDialog.registerCount}
+                    onChange={(event) =>
+                      setTableDialog({ ...tableDialog, registerCount: event.target.value })
+                    }
+                  />
+                </label>
+                <p>地址支持十进制 / 0x 十六进制；数量 1–125。</p>
+              </>
+            )}
+            {tableDialog.error && (
+              <p role="alert" className="warning">
+                {tableDialog.error}
+              </p>
+            )}
+            <footer>
+              <button type="button" onClick={() => setTableDialog(null)}>
+                取消
+              </button>
+              <button
+                type="submit"
+                className={tableDialog.mode === 'delete' ? 'danger' : 'primary'}
+              >
+                {tableDialog.mode === 'delete' ? '删除表' : '保存表'}
+              </button>
+            </footer>
+          </form>
+        </div>
+      )}
       {contextMenu && (
         <div
           className="modbus-context-menu"
+          role="menu"
+          aria-label="寄存器操作"
           style={{ left: contextMenu.x, top: contextMenu.y }}
           onPointerDown={(event) => event.stopPropagation()}
         >
+          <small>
+            地址 {contextMenu.address} · 0x{contextMenu.address.toString(16).toUpperCase()}
+          </small>
           <button
             disabled={
               Boolean(definitions[contextMenu.address]) ||
@@ -1047,11 +1563,7 @@ export function ModbusPanel({
             编辑寄存器
           </button>
           <button
-            disabled={
-              !definitions[contextMenu.address] ||
-              definitions[contextMenu.address - 1]?.words === 2 ||
-              !targetPort
-            }
+            disabled={!canWriteRegister(contextMenu.address) || !targetPort || presetBusy}
             onClick={() => {
               openRegisterDialog('write', contextMenu.address)
               setContextMenu(null)
@@ -1059,6 +1571,64 @@ export function ModbusPanel({
           >
             写入数值…
           </button>
+          <div
+            className="modbus-submenu-root"
+            onMouseEnter={() => setShortcutSubmenu(true)}
+            onMouseLeave={() => setShortcutSubmenu(false)}
+          >
+            <button
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={shortcutSubmenu}
+              disabled={definitions[contextMenu.address - 1]?.words === 2 || presetBusy}
+              onClick={() => setShortcutSubmenu(true)}
+              onKeyDown={(event) => {
+                if (event.key === 'ArrowRight') {
+                  event.preventDefault()
+                  setShortcutSubmenu(true)
+                }
+              }}
+            >
+              创建快捷指令 <span>▸</span>
+            </button>
+            {shortcutSubmenu &&
+              definitions[contextMenu.address - 1]?.words !== 2 &&
+              !presetBusy && (
+                <div
+                  className="modbus-context-menu modbus-register-submenu"
+                  role="menu"
+                  aria-label="创建快捷指令"
+                  style={{
+                    left: contextMenu.x + 390 > window.innerWidth ? 'auto' : '100%',
+                    right: contextMenu.x + 390 > window.innerWidth ? '100%' : 'auto'
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'ArrowLeft') {
+                      event.preventDefault()
+                      setShortcutSubmenu(false)
+                    }
+                  }}
+                >
+                  <button
+                    role="menuitem"
+                    disabled={
+                      values[contextMenu.address - startAddress] === undefined ||
+                      (definitions[contextMenu.address]?.words === 2 &&
+                        values[contextMenu.address - startAddress + 1] === undefined)
+                    }
+                    onClick={() => createShortcut(contextMenu.address, true)}
+                  >
+                    使用当前值…
+                  </button>
+                  <button
+                    role="menuitem"
+                    onClick={() => createShortcut(contextMenu.address, false)}
+                  >
+                    自定义数值…
+                  </button>
+                </div>
+              )}
+          </div>
           <i />
           <button
             className="danger"
@@ -1302,7 +1872,8 @@ function RegisterCells({
       </td>
       <td
         className={`modbus-value ${selected ? 'selected' : ''}`}
-        title={`地址 ${String(address).padStart(5, '0')}${onWrite ? ' · 双击写入' : ' · 32 位数据高地址'}`}
+        data-address={address}
+        title={`地址 ${address} · 0x${address.toString(16).toUpperCase()}${onWrite ? ' · 双击写入' : ' · 32 位数据需完整范围'}`}
         onClick={() => onSelect(address)}
         onContextMenu={onContextMenu}
         onDoubleClick={() => onWrite && void onWrite(address)}

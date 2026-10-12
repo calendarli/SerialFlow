@@ -1,5 +1,5 @@
 // Run after a production build with bun run test:ui:serial. No real port is opened.
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, type BrowserWindowConstructorOptions } from 'electron'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import assert from 'node:assert/strict'
@@ -15,6 +15,17 @@ const moduleRequire = createRequire(path.join(root, 'package.json'))
 const Module = NodeModule as unknown as { _load: (name: string, ...args: unknown[]) => unknown }
 const load = Module._load
 Module._load = function (name, ...args) {
+  if (name === 'electron' && process.argv.includes('--modbus-only')) {
+    const electron = load.call(this, name, ...args) as typeof import('electron')
+    return {
+      ...electron,
+      BrowserWindow: class extends electron.BrowserWindow {
+        constructor(options: BrowserWindowConstructorOptions) {
+          super({ ...options, webPreferences: { ...options.webPreferences, offscreen: true } })
+        }
+      }
+    }
+  }
   if (name === 'serialport')
     return {
       SerialPort: class {
@@ -61,9 +72,16 @@ app.whenReady().then(async () => {
     const window = BrowserWindow.getAllWindows()[0]
     window.setOpacity(0)
     window.setSkipTaskbar(true)
-    window.showInactive()
+    if (!process.argv.includes('--modbus-only')) window.showInactive()
     const run = (source: string) => window.webContents.executeJavaScript(source)
     await until(() => run('Boolean(document.querySelector(".send-mode-tabs"))'))
+    if (process.argv.includes('--modbus-only')) {
+      await checkModbusPresets(window)
+      assert(errors.length === 0, errors.join('\n'))
+      clearTimeout(deadline)
+      app.exit(0)
+      return
+    }
     await run(
       `Array.from(document.querySelectorAll('.send-mode-tabs button')).find(b => b.textContent === '固件烧录').click()`
     )

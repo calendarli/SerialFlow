@@ -22,6 +22,8 @@ type Props = {
   onRun: (preset: ModbusPreset, commands: ModbusCommand[]) => Promise<void>
   onCancel: () => void
   onCapture?: () => ModbusPreset
+  commandDraft?: ModbusCommand | null
+  onCommandDraftConsumed?: (draft: null) => void
 }
 
 export function ModbusPresets({
@@ -33,7 +35,9 @@ export function ModbusPresets({
   target,
   onRun,
   onCancel,
-  onCapture
+  onCapture,
+  commandDraft,
+  onCommandDraftConsumed
 }: Props): React.JSX.Element {
   const shortcuts = mode === 'shortcuts'
   const storageKey = shortcuts ? modbusShortcutKey : modbusPresetKey
@@ -82,6 +86,20 @@ export function ModbusPresets({
     list?: boolean
   } | null>(null)
   const [groupEditor, setGroupEditor] = useState<{ id: string; name: string } | null>(null)
+  useEffect(() => {
+    if (!shortcuts || !commandDraft) return
+    const target = initial.presets[0]
+    if (target) {
+      setSelected(target.id)
+      setError('')
+      setMenu(null)
+      setGroupEditor(null)
+      setEditor({ group: '', command: commandDraft })
+    } else {
+      setError('快捷指令存储无法读取，请先修复已有数据')
+    }
+    onCommandDraftConsumed?.(null)
+  }, [shortcuts, commandDraft, initial.presets, onCommandDraftConsumed])
   useEffect(() => {
     if (!menu) return
     const close = (): void => setMenu(null)

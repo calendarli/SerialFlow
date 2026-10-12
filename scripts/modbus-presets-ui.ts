@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { appendCrc } from '../src/renderer/src/serial-utils'
+import { checkModbusRange } from './modbus-range-ui'
+import { checkModbusTables } from './modbus-tables-ui'
 
 export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
   const run = (source: string): Promise<unknown> => window.webContents.executeJavaScript(source)
@@ -33,6 +35,43 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
     `localStorage.setItem('serialflow.modbus.sidebarWidth', '220'); document.querySelector('[aria-label="Modbus RTU"]').click()`
   )
   await until(`Boolean(document.querySelector('.modbus-presets'))`)
+  assert.equal(await run("document.querySelector('[aria-label=寄存器数量]').value"), '15')
+  assert.deepEqual(
+    await run(
+      "JSON.parse(localStorage.getItem('serialflow.modbus.workspace.v2')).tables[0].definitions"
+    ),
+    {}
+  )
+  await run(
+    "Array.from(document.querySelectorAll('.modbus-table-actions button')).find(b => b.textContent === '新增表').click()"
+  )
+  assert.equal(await run("document.querySelector('[aria-label=新表寄存器数量]').value"), '15')
+  await run(
+    "Array.from(document.querySelector('[aria-label=寄存器表设置]').querySelectorAll('button')).find(b => b.textContent === '取消').click()"
+  )
+  // Explicit legacy fixture: snapshot coverage must not depend on startup sample data.
+  ipcMain.removeHandler('modbus:openMap')
+  ipcMain.handle('modbus:openMap', () => ({
+    name: 'legacy-fixture.json',
+    base64: Buffer.from(
+      JSON.stringify({
+        format: 'serialflow-modbus-map',
+        version: 1,
+        registers: [
+          { address: 0, alias: 'cmd+param', format: 'hex16' },
+          { address: 1, alias: 'target position', format: 'int32' },
+          { address: 3, alias: 'speed', format: 'float32' }
+        ]
+      })
+    ).toString('base64')
+  }))
+  await run(
+    "Array.from(document.querySelectorAll('.modbus-menubar button')).find(b => b.textContent === '配置').click()"
+  )
+  await run(
+    "Array.from(document.querySelectorAll('.modbus-menu-popover button')).find(b => b.textContent.includes('导入')).click()"
+  )
+  await until("document.querySelector('[aria-label=寄存器数量]').value === '50'")
   assert.equal(
     await run(
       "Boolean(document.querySelector('.modbus-menubar button')?.textContent.includes('配置管理器'))"
@@ -131,7 +170,7 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 150))
   writeFileSync(
     join(process.cwd(), '.tmp/ui-smoke/modbus-group-dialog.png'),
-    (await window.webContents.capturePage()).toPNG()
+    (await window.webContents.capturePage(undefined, { stayHidden: true, stayAwake: true })).toPNG()
   )
   await click('保存分组')
   await context('.modbus-presets-shortcuts .modbus-command-group')
@@ -422,7 +461,7 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
   })()`)
   await run("document.querySelector('.modbus-dialog button[type=submit]').click()")
   await until(
-    "JSON.parse(localStorage.getItem('serialflow.modbus.workspace.v1')).definitions[0].alias === '手动编辑持久化'"
+    "JSON.parse(localStorage.getItem('serialflow.modbus.workspace.v2')).tables[0].definitions[0].alias === '手动编辑持久化'"
   )
   window.webContents.reload()
   await until('Boolean(document.querySelector(\'[aria-label="Modbus RTU"]\'))')
@@ -468,7 +507,7 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 150))
   writeFileSync(
     join(process.cwd(), '.tmp/ui-smoke/modbus-config-manager.png'),
-    (await window.webContents.capturePage()).toPNG()
+    (await window.webContents.capturePage(undefined, { stayHidden: true, stayAwake: true })).toPNG()
   )
   await run("document.querySelector('#modbus-tab-shortcuts').click()")
   await until("!document.querySelector('.modbus-command-trigger').disabled")
@@ -486,7 +525,7 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 150))
   writeFileSync(
     join(process.cwd(), '.tmp/ui-smoke/modbus-shortcut-menu.png'),
-    (await window.webContents.capturePage()).toPNG()
+    (await window.webContents.capturePage(undefined, { stayHidden: true, stayAwake: true })).toPNG()
   )
   await run("window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))")
   await until("!document.querySelector('.modbus-shortcut-menu')")
@@ -514,7 +553,7 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
     "document.querySelector('.modbus-register-table').textContent.includes('外部导入持久化')"
   )
   await until(
-    "JSON.parse(localStorage.getItem('serialflow.modbus.workspace.v1')).mapName === 'persisted-import.json'"
+    "JSON.parse(localStorage.getItem('serialflow.modbus.workspace.v2')).tables[0].mapName === 'persisted-import.json'"
   )
   window.webContents.reload()
   await until('Boolean(document.querySelector(\'[aria-label="Modbus RTU"]\'))')
@@ -523,7 +562,7 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
     "document.querySelector('.modbus-register-table')?.textContent.includes('外部导入持久化')"
   )
   const workspace = (await run(
-    "JSON.parse(localStorage.getItem('serialflow.modbus.workspace.v1'))"
+    "JSON.parse(localStorage.getItem('serialflow.modbus.workspace.v2')).tables[0]"
   )) as {
     definitions: unknown
     values?: unknown[]
@@ -536,4 +575,6 @@ export async function checkModbusPresets(window: BrowserWindow): Promise<void> {
   console.log(
     'Modbus: homepage capture, exact register restoration, list selection, persistence and quick controls passed'
   )
+  await checkModbusRange(window)
+  await checkModbusTables(window)
 }

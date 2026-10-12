@@ -7,7 +7,7 @@ const root = resolve(import.meta.dirname, '..')
 const suite =
   process.argv[2] === 'updates'
     ? 'update-ui-smoke'
-    : process.argv[2] === 'serial'
+    : process.argv[2] === 'serial' || process.argv[2] === 'modbus'
       ? 'serial-ui-performance'
       : process.argv[2] === 'remote'
         ? 'remote-serial-ui-smoke'
@@ -25,4 +25,10 @@ const result = await Bun.build({
   naming: `${suite}.cjs`
 })
 if (!result.success) throw new AggregateError(result.logs, 'UI smoke compilation failed')
-run(electron as unknown as string, [resolve(output, `${suite}.cjs`)], root, false, 90000)
+run(
+  electron as unknown as string,
+  [resolve(output, `${suite}.cjs`), ...(process.argv[2] === 'modbus' ? ['--modbus-only'] : [])],
+  root,
+  false,
+  90000
+)

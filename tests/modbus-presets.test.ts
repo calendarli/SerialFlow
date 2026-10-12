@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   encodeModbusCommand,
   captureModbusPreset,
+  captureModbusCommand,
   moveItem,
   parseModbusPresets,
   runModbusCommands,
@@ -33,6 +34,37 @@ test('drop edges insert before or after the target in either direction', () => {
   expect(order('missing', 'a', 'before')).toBe('abc')
 })
 describe('Modbus device presets', () => {
+  test('captures nonzero ranges and creates exact typed shortcuts at their actual addresses', () => {
+    for (const order of ['abcd', 'cdab'] as const) {
+      for (const [format, value] of [
+        ['float32', '-0'],
+        ['float32', '1.23456789'],
+        ['uint32', '4294967295']
+      ] as const) {
+        const source = { ...command, address: '0x103', format, value }
+        const encoded = encodeModbusCommand(source, 7, order)
+        const definitions = { 259: { alias: '目标参数', format, words: 2 as const } }
+        const captured = captureModbusCommand(encoded.words, definitions, 259, order, 259)
+        expect(captured.address).toBe('0x103')
+        expect(captured.name).toBe('目标参数')
+        expect(encodeModbusCommand(captured, 7, order).request).toEqual(encoded.request)
+        const preset = captureModbusPreset(encoded.words, definitions, 7, order, '高地址', 259)
+        expect(preset.groups[0].commands).toHaveLength(1)
+        expect(preset.groups[0].commands[0].address).toBe('259')
+        expect(encodeModbusCommand(preset.groups[0].commands[0], 7, order).request).toEqual(
+          encoded.request
+        )
+        expect(() =>
+          captureModbusCommand(encoded.words.slice(0, 1), definitions, 259, order, 259)
+        ).toThrow('不完整')
+      }
+    }
+    const raw = captureModbusCommand([42], {}, 65535, 'abcd', 65535)
+    expect([...encodeModbusCommand(raw, 1, 'abcd').request.slice(0, -2)]).toEqual([
+      1, 6, 255, 255, 0, 42
+    ])
+    expect(() => captureModbusCommand([undefined], {}, 259, 'abcd', 259)).toThrow('暂无数据')
+  })
   test('captures exact typed homepage values and preserves 32-bit words in both orders', () => {
     for (const order of ['abcd', 'cdab'] as const) {
       for (const [format, value] of [
