@@ -58,8 +58,17 @@ app.whenReady().then(async () => {
     window.showInactive()
     const run = (source: string) => window.webContents.executeJavaScript(source)
     await until(() => run('Boolean(document.querySelector(".plot-panel"))'), 'plot mounted')
+    assert(
+      await run('Boolean(document.querySelector(".plot-panel:not(.collapsed) .plot-grid-line"))'),
+      'Fresh startup displays the empty grid before any port is configured'
+    )
+    await run(`document.querySelector('.plot-collapse-button').click()`)
+    await until(
+      () => run('Boolean(document.querySelector(".plot-panel.collapsed"))'),
+      'manual collapse still works during the session'
+    )
     await run(`localStorage.setItem('serialflow.serialConfigs', JSON.stringify([{id:1,name:'QA',path:'COM991',baudRate:115200,dataBits:8,stopBits:1,parity:'none',plotEnabled:true,framing:{mode:'raw'}}]));
-      localStorage.setItem('serialflow.plotPointLimit','100000'); localStorage.setItem('serialflow.plotXWindowPoints','100000'); localStorage.setItem('serialflow.plotCollapsed','false'); localStorage.setItem('serialflow.interactionCacheEntries','10')`)
+      localStorage.setItem('serialflow.plotPointLimit','100000'); localStorage.setItem('serialflow.plotXWindowPoints','100000'); localStorage.setItem('serialflow.plotCollapsed','true'); localStorage.setItem('serialflow.interactionCacheEntries','10')`)
     const reloaded = new Promise<void>((resolve) =>
       window.webContents.once('did-finish-load', () => resolve())
     )
@@ -67,7 +76,7 @@ app.whenReady().then(async () => {
     await reloaded
     await until(
       () => run('Boolean(document.querySelector(".plot-panel:not(.collapsed)"))'),
-      'configured plot'
+      'startup expands the plot even with a saved collapsed preference'
     )
     await new Promise((resolve) => setTimeout(resolve, 100))
     await run(

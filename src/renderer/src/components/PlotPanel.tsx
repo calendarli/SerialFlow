@@ -227,9 +227,8 @@ export function PlotPanel({
 }: Props): React.JSX.Element {
   const [paused, setPaused] = useState(false)
   const [frozenSamples, setFrozenSamples] = useState<PlotBuffer<Sample> | null>(null)
-  const [collapsed, setCollapsed] = useState(
-    () => localStorage.getItem('serialflow.plotCollapsed') === 'true'
-  )
+  // Always show the empty grid on startup, including profiles saved by older versions.
+  const [collapsed, setCollapsed] = useState(false)
   const [requestedHeight, setHeight] = useState(loadPlotHeight)
   const [availableHeight, setAvailableHeight] = useState(700)
   const [plotColors, setPlotColors] = useState(loadPlotColors)
@@ -2292,7 +2291,6 @@ export function PlotPanel({
               const next = !collapsed
               if (next) setOpenPanel(null)
               setCollapsed(next)
-              localStorage.setItem('serialflow.plotCollapsed', String(next))
             }}
           >
             {collapsed ? '展开' : '收起'}
