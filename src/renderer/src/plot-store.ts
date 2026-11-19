@@ -1,6 +1,7 @@
 import { PlotProgramRuntime } from './plot-program'
 import { PlotBuffer, parsePlotValues, type PlotSample } from './plot-data'
 import { displayChannelName } from './plot-display'
+import { SampleClocks, normalizeClock, defaultClock, type SampleClock } from './plot/clock'
 
 export class PlotStore {
   samples = new PlotBuffer<PlotSample>(1000)
@@ -9,6 +10,17 @@ export class PlotStore {
   private ports: string[] = []
   private nextId = 0
   private breaks = new Set<string>()
+  private clocks = new SampleClocks()
+  private clockSettings: Record<string, SampleClock> = {}
+  clockWarning = ''
+  configureClocks(settings: Record<string, SampleClock>): void {
+    const normalized = Object.fromEntries(
+      Object.entries(settings).map(([port, value]) => [port, normalizeClock(value)])
+    )
+    if (JSON.stringify(normalized) === JSON.stringify(this.clockSettings)) return
+    this.clockSettings = normalized
+    this.clear()
+  }
   private revision = 0
   private timer: ReturnType<typeof setTimeout> | undefined
   private listeners = new Set<() => void>()
@@ -137,11 +149,19 @@ export class PlotStore {
         return [[name, value]]
       })
     )
+    const clock = this.clocks.resolve(
+      port,
+      this.clockSettings[port] ?? defaultClock,
+      values,
+      timestamp,
+      this.samples.at(-1)?.timestamp ?? timestamp
+    )
+    if (clock.warning) this.clockWarning = clock.warning
     this.samples.push({
       id: ++this.nextId,
       port,
-      breakBefore: this.breaks.delete(port),
-      timestamp: Math.max(timestamp, this.samples.at(-1)?.timestamp ?? timestamp),
+      breakBefore: this.breaks.delete(port) || clock.gap,
+      timestamp: clock.timestamp,
       values: qualified
     })
     this.notify()
@@ -160,12 +180,15 @@ export class PlotStore {
     return displayChannelName(name, port, index > 0 ? `${label} (${index + 1})` : label)
   }
   disconnect(port: string): void {
+    this.clocks.disconnect(port)
     if (!this.ports.includes(port)) return
     if (this.program.enabled && !this.programError && (this.processing || this.queue.length)) {
       this.queue.push({ port, values: {}, timestamp: Date.now(), gap: true })
     } else this.breaks.add(port)
   }
   clear(capacity = this.samples.capacity): void {
+    this.clocks.reset()
+    this.clockWarning = ''
     this.generation++
     clearTimeout(this.processTimer)
     this.processTimer = undefined
@@ -190,7 +213,7 @@ export class PlotStore {
       this.timer = undefined
       this.revision++
       for (const listener of this.listeners) listener()
-    }, 32)
+    }, 16)
   }
   dispose(): void {
     this.generation++

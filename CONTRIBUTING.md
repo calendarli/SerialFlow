@@ -46,6 +46,8 @@ Modbus 设备预设的数据校验、编码与顺序执行位于 `src/renderer/s
 
 实时曲线使用独立的 `plot-store.ts` 环形缓存，`plot-data.ts` 提供原始区间统计和按像素保留峰谷的降采样，计算通道在 QuickJS Worker 中批量执行。修改曲线时运行 `bun test tests/plot-data.test.ts`，生产构建后运行 `bun run test:ui:plot` 和 `bun run test:ui:serial`。曲线 UI 测试覆盖游标交叉/重合、冻结/恢复、日志独立性、计算通道以及 100,000 点 × 8 通道，并将截图和延迟指标写入 `.tmp/ui-smoke/`。这些测试使用模拟数据，不代表硬件采样精度验收。
 
+WebGL2 / Canvas 渲染器、稳定量程、时间源、分块几何和统计缓存位于 `src/renderer/src/plot/`。针对性检查增加 `bun test tests/plot-engine.test.ts`。`bun run test:ui:plot-renderer` 在真实 Electron 图形上下文中检查像素覆盖、清屏、大基值微小变化和上下文丢失，并记录 GPU 状态。设置环境变量 `SERIALFLOW_PLOT_GPU=1` 后运行 `bun run test:ui:plot`，测试会保留图形加速并断言 WebGL2 后端；默认运行验证兼容环境。不要把 WebGL2 可用等同于硬件加速已启用。具体命令及限制见 `docs/plot-engine.md`。
+
 数据窗口的字段解析位于 `src/renderer/src/data-window-parser.ts`，编程换算位于
 `src/renderer/src/data-window-program.ts`，复用 QuickJS Worker 的内存和执行时间限制。
 修改换算行为时运行 `bun test tests/data-window-parser.test.ts tests/data-window-program.test.ts`，

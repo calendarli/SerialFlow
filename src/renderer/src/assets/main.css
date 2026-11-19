@@ -7177,14 +7177,14 @@ footer > span:first-child {
   border-radius: 0;
 }
 .plot-toolbar-compact button:focus-visible,
-.plot-options-popover :is(button, input):focus-visible {
+.plot-options-popover :is(button, input, select):focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
 .plot-options-popover {
   display: grid;
   gap: 12px;
-  width: 240px;
+  width: 320px;
   max-width: calc(100vw - 16px);
   padding: 16px;
   border: 1px solid #dce4ef;
@@ -7209,6 +7209,33 @@ footer > span:first-child {
   width: 104px;
   height: 32px;
   padding: 0 8px;
+}
+.plot-options-popover select {
+  width: 136px;
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  font-size: 12px;
+}
+.plot-clock-setting {
+  display: grid;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.plot-clock-setting label {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 136px;
+  align-items: center;
+  gap: 8px;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.plot-clock-setting input {
+  width: 136px;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
 }
 .plot-options-popover small {
   font-size: 11px;

@@ -20,8 +20,10 @@ Module._load = function (name, ...args) {
     }
   return load.call(this, name, ...args)
 }
-app.disableHardwareAcceleration()
-app.commandLine.appendSwitch('in-process-gpu')
+if (process.env.SERIALFLOW_PLOT_GPU !== '1') {
+  app.disableHardwareAcceleration()
+  app.commandLine.appendSwitch('in-process-gpu')
+}
 const profile = fs.mkdtempSync(path.join(root, '.tmp', 'ui-smoke', 'plot-qa-'))
 app.setPath('appData', profile)
 app.setPath('userData', profile)
@@ -185,6 +187,73 @@ app.whenReady().then(async () => {
       () => run('document.querySelector(".plot-heading").textContent.includes("5 个采样点")'),
       'five samples'
     )
+    await until(
+      () => run("Boolean(document.querySelector('.plot-curve-canvas')?.dataset.renderer)"),
+      'renderer produced a frame'
+    )
+    if (process.env.SERIALFLOW_PLOT_GPU === '1')
+      assert.equal(
+        await run("document.querySelector('.plot-curve-canvas').dataset.renderer"),
+        'webgl2'
+      )
+    const selectSetting = async (label: string, value: string) => {
+      await run(`(() => {const select=document.querySelector('select[aria-label="${label}"]');
+        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(select,${JSON.stringify(value)});
+        select.dispatchEvent(new Event('change',{bubbles:true}))})()`)
+    }
+    await click('设置')
+    await until(
+      () => run(`Boolean(document.querySelector('[aria-label="绘图引擎"]'))`),
+      'renderer settings visible'
+    )
+    fs.writeFileSync(
+      path.join(root, '.tmp/ui-smoke/plot-settings.png'),
+      (await window.webContents.capturePage()).toPNG()
+    )
+    await selectSetting('绘图引擎', 'canvas')
+    await until(
+      () => run("document.querySelector('.plot-curve-canvas')?.dataset.renderer === 'canvas'"),
+      'canvas engine switch'
+    )
+    if (process.env.SERIALFLOW_PLOT_GPU === '1') {
+      await selectSetting('绘图引擎', 'webgl2')
+      await until(
+        () => run("document.querySelector('.plot-curve-canvas')?.dataset.renderer === 'webgl2'"),
+        'GPU engine switch'
+      )
+    }
+    await click('时间', 'button')
+    await until(
+      () => run("Number(document.querySelector('.plot-curve-canvas')?.dataset.xSpan) === 10000"),
+      'fixed ten second window with only five samples'
+    )
+    await click('点序号', 'button')
+    // Inject a single worker initialization failure and verify a fresh canvas is used.
+    await run(`(() => {const Original=window.Worker; window.Worker=class extends Original {
+      constructor(...args) {super(...args); window.Worker=Original;
+        const send=this.postMessage.bind(this); this.postMessage=(message,...rest)=> {
+          if(message.type==='init') setTimeout(()=>this.onmessage?.(new MessageEvent('message',{data:{type:'failed',reason:'QA initialization failure'}})),0);
+          else send(message,...rest);
+        };
+      }
+    }})()`)
+    await selectSetting('绘图引擎', 'webgl2')
+    await until(
+      () => run("document.querySelector('.plot-curve-canvas')?.dataset.renderer === 'canvas'"),
+      'worker failure recreates canvas and falls back'
+    )
+    assert(
+      await run("document.querySelector('.plot-heading').textContent.includes('5 个采样点')"),
+      'engine changes preserve raw samples'
+    )
+    if (process.env.SERIALFLOW_PLOT_GPU === '1') {
+      await selectSetting('绘图引擎', 'webgl2')
+      await until(
+        () => run("document.querySelector('.plot-curve-canvas')?.dataset.renderer === 'webgl2'"),
+        'GPU restored after injected failure'
+      )
+    }
+    await click('设置')
     await click('双游标')
     await measureRun('true')
     assert(
@@ -218,6 +287,20 @@ app.whenReady().then(async () => {
       `(() => {const r=document.querySelector('.measurement-resume').getBoundingClientRect();return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2)}})()`
     )
     measurementWindow()!.webContents.sendInputEvent({ type: 'mouseMove', ...receiveButton })
+    // Force only the hover state: hidden Windows sessions do not reliably deliver native pointer hover.
+    const hoverDebugger = measurementWindow()!.webContents.debugger
+    hoverDebugger.attach('1.3')
+    await hoverDebugger.sendCommand('DOM.enable')
+    await hoverDebugger.sendCommand('CSS.enable')
+    const hoverDocument = await hoverDebugger.sendCommand('DOM.getDocument')
+    const hoverNode = await hoverDebugger.sendCommand('DOM.querySelector', {
+      nodeId: hoverDocument.root.nodeId,
+      selector: '.measurement-resume'
+    })
+    await hoverDebugger.sendCommand('CSS.forcePseudoState', {
+      nodeId: hoverNode.nodeId,
+      forcedPseudoClasses: ['hover']
+    })
     await until(
       () =>
         measureRun(
@@ -225,6 +308,11 @@ app.whenReady().then(async () => {
         ),
       'receive button stays readable on hover'
     )
+    await hoverDebugger.sendCommand('CSS.forcePseudoState', {
+      nodeId: hoverNode.nodeId,
+      forcedPseudoClasses: []
+    })
+    hoverDebugger.detach()
     measurementWindow()!.webContents.sendInputEvent({ type: 'mouseMove', x: 0, y: 0 })
     await input('游标 A 采样点', 1)
     await run('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
@@ -487,6 +575,24 @@ app.whenReady().then(async () => {
       beforePair,
       'cursor interval stays fixed relative to a full rolling buffer'
     )
+    await click('设置')
+    await selectSetting('游标模式', 'fixed')
+    await click('设置')
+    const fixedValues = await rollingValue()
+    const fixedPair = (await cursorPair()).split(',').map(Number)
+    send(Array.from({ length: 10 }, () => '7777,7777,7777,7777,7777,7777,7777,7777'))
+    await until(
+      async () => (await cursorPair()) === fixedPair.map((value: number) => value - 10).join(','),
+      'fixed cursors retain sample identity across rollover'
+    )
+    assert.equal(
+      await rollingValue(),
+      fixedValues,
+      'fixed cursor measurements retain original values'
+    )
+    await click('设置')
+    await selectSetting('游标模式', 'follow')
+    await click('设置')
     await click('暂停接收')
     const pausedValue = await rollingValue()
     send(['8888,8888,8888,8888,8888,8888,8888,8888'])
@@ -553,9 +659,20 @@ app.whenReady().then(async () => {
     )
     assert(errors.length === 0, errors.join('\n'))
     fs.writeFileSync(
-      path.join(root, '.tmp/ui-smoke/plot-performance.json'),
+      path.join(
+        root,
+        process.env.SERIALFLOW_PLOT_GPU === '1'
+          ? '.tmp/ui-smoke/plot-performance-gpu.json'
+          : '.tmp/ui-smoke/plot-performance.json'
+      ),
       JSON.stringify(
-        { samples: 100000, channels: 8, cursorRoundTripMs: latencies, ...metrics },
+        {
+          samples: 100000,
+          channels: 8,
+          cursorRoundTripMs: latencies,
+          gpu: app.getGPUFeatureStatus(),
+          ...metrics
+        },
         null,
         2
       )

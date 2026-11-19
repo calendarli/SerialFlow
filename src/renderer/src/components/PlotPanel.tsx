@@ -1,3 +1,18 @@
+import { defaultClock, normalizeClock, type SampleClock } from '../plot/clock'
+import { packSamples } from '../plot/packet'
+import { StatisticsCache } from '../plot/statistics'
+import { GeometryCache } from '../plot/geometry'
+import { CanvasRenderer } from '../plot/canvas-renderer'
+import type { PlotStatistics } from '../plot-data'
+import {
+  AutoRange,
+  paddedRange,
+  niceTicks,
+  wheelScale,
+  zoomRange,
+  indexAtTime
+} from '../plot/viewport'
+import type { RendererMode } from '../plot/render-types'
 import { PlotStore } from '../plot-store'
 import {
   shiftPlotCursors,
@@ -8,7 +23,7 @@ import {
 import { ClearActionIcon } from './ClearActionIcon'
 import { settlingTime } from '../settling-time'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
-import { PlotBuffer, measurePlot, plotVertices, type PlotSample as Sample } from '../plot-data'
+import { PlotBuffer, type PlotSample as Sample } from '../plot-data'
 import { FloatingPanel } from './FloatingPanel'
 import { ProgramCodeEditor } from './ProgramCodeEditor'
 import { defaultPlotProgram } from '../plot-program'
@@ -123,7 +138,7 @@ function loadPlotHeight(): number | null {
 }
 
 function loadXWindow(pointLimit: number): number {
-  const saved = Number(localStorage.getItem(xWindowKey))
+  const saved = Number(localStorage.getItem(xWindowKey) || pointLimit)
   return Number.isFinite(saved) ? clamp(Math.round(saved), 1, pointLimit) : pointLimit
 }
 
@@ -227,16 +242,56 @@ export function PlotPanel({
     )
   )
   const [startId, setStartId] = useState(0)
-  const [xMode, setXMode] = useState<'time' | 'points'>('points')
+  const [xMode, setXMode] = useState<'time' | 'points'>(() =>
+    localStorage.getItem('serialflow.plotXMode') === 'time' ? 'time' : 'points'
+  )
+  const [timeWindow, setTimeWindow] = useState(() =>
+    clamp(Number(localStorage.getItem('serialflow.plotTimeWindow')) || 10000, 1, 86400000)
+  )
+  const [rendererMode, setRendererMode] = useState<RendererMode>(() => {
+    const mode = localStorage.getItem('serialflow.plotRenderer')
+    return mode === 'canvas' || mode === 'webgl2' ? mode : 'auto'
+  })
+  const [lineWidth, setLineWidth] = useState(() =>
+    clamp(Number(localStorage.getItem('serialflow.plotLineWidth')) || 1.5, 0.5, 8)
+  )
+  const [clockSettings, setClockSettings] = useState<Record<string, SampleClock>>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('serialflow.plotClocks') || '{}')
+      return Object.fromEntries(
+        Object.entries(saved).map(([port, clock]) => [port, normalizeClock(clock as SampleClock)])
+      )
+    } catch {
+      return {}
+    }
+  })
+  const [canvasEpoch, setCanvasEpoch] = useState(0)
+  const [canvasFallback, setCanvasFallback] = useState(false)
+  const [mainFallback, setMainFallback] = useState(false)
+  const [rendererStatus, setRendererStatus] = useState('初始化中')
+  const [rendererReason, setRendererReason] = useState('')
+  const [workerReady, setWorkerReady] = useState(false)
+  const frameSequence = useRef(0)
+  const autoRange = useRef(new AutoRange())
+  const fallbackStatistics = useRef(new StatisticsCache())
+  const fallbackGeometry = useRef(new GeometryCache())
+  const statsRequest = useRef(0)
+  const [workerStatistics, setWorkerStatistics] = useState<{
+    window: Record<string, PlotStatistics>
+    measurement: Record<string, PlotStatistics> | null
+  } | null>(null)
   const [lineMode, setLineMode] = useState<'linear' | 'step'>('linear')
   const [yAutoMode, setYAutoMode] = useState<'full' | 'robust'>('full')
   const [cursorSelection, setCursorSelection] = useState<AnchoredPlotCursors | null>(null)
+  const [cursorMode, setCursorMode] = useState<'follow' | 'fixed'>('follow')
+  const [fixedCursorIds, setFixedCursorIds] = useState<PlotCursors | null>(null)
   const cursorDrag = useRef<'a' | 'b' | null>(null)
   const rangeDrag = useRef<{ anchor: number; cursors: PlotCursors } | null>(null)
   const [activeCursor, setActiveCursor] = useState<'a' | 'b'>('a')
   const measurementWindow = useRef<number | null>(null)
   const [xWindowPoints, setXWindowPoints] = useState(() => loadXWindow(pointLimit))
-  const [viewEndIndex, setViewEndIndex] = useState<number | null>(null)
+  const [viewEndId, setViewEndId] = useState<number | null>(null)
+  const [viewEndTime, setViewEndTime] = useState<number | null>(null)
   const [manualYRange, setManualYRange] = useState<YRange | null>(null)
   const [hoverState, setHover] = useState<HoverState | null>(null)
   const [hoveredAxis, setHoveredAxis] = useState<'x' | 'y' | null>(null)
@@ -245,6 +300,7 @@ export function PlotPanel({
   const [disabledChannels, setDisabledChannels] = useState(loadDisabledChannels)
   const [pidSettings, setPidSettings] = useState(loadPidSettings)
   const [canvasWidth, setCanvasWidth] = useState(1000)
+  const [canvasHeight, setCanvasHeight] = useState(420)
   const [openPanel, setOpenPanel] = useState<'settings' | 'colors' | 'pid' | 'program' | null>(null)
   const [programDraft, setProgramDraft] = useState(() => ({
     enabled: store.program.enabled,
@@ -269,7 +325,7 @@ export function PlotPanel({
   const settingsButtonRef = useRef<HTMLButtonElement | null>(null)
   const pidButtonRef = useRef<HTMLButtonElement | null>(null)
   const latestHeight = useRef(height)
-  const xDrag = useRef<{ x: number; end: number } | null>(null)
+  const xDrag = useRef<{ x: number; end: number; id: number; time: number } | null>(null)
   const xRangeDrag = useRef<XRangeDrag | null>(null)
   const yDrag = useRef<{ y: number; range: YRange } | null>(null)
   const closeFloatingPanel = useCallback(() => setOpenPanel(null), [])
@@ -286,9 +342,10 @@ export function PlotPanel({
   useEffect(() => {
     const canvas = plotCanvasRef.current
     if (!canvas) return
-    const observer = new ResizeObserver(([entry]) =>
+    const observer = new ResizeObserver(([entry]) => {
       setCanvasWidth(Math.max(1, entry.contentRect.width))
-    )
+      setCanvasHeight(Math.max(1, entry.contentRect.height))
+    })
     observer.observe(canvas)
     return () => observer.disconnect()
   }, [collapsed])
@@ -298,36 +355,82 @@ export function PlotPanel({
     paused ? () => 0 : store.getSnapshot
   )
   useEffect(() => {
+    store.configureClocks(clockSettings)
+    localStorage.setItem('serialflow.plotClocks', JSON.stringify(clockSettings))
+    setViewEndId(null)
+    setViewEndTime(null)
+    setCursorSelection(null)
+    setFixedCursorIds(null)
+    setFrozenSamples(null)
+    setPaused(false)
+    setStartId((value) => value + 1)
+    autoRange.current.reset()
+  }, [store, clockSettings])
+  useEffect(() => {
     store.configure(enabledPorts, pointLimit)
   }, [store, enabledPorts, pointLimit])
   useEffect(() => {
     setCursorSelection(null)
+    setFixedCursorIds(null)
     setPaused(false)
     setFrozenSamples(null)
-    setViewEndIndex(null)
+    setViewEndId(null)
+    setViewEndTime(null)
+    setFixedCursorIds(null)
     setHover(null)
+    autoRange.current.reset()
+    fallbackStatistics.current.clear()
+    fallbackGeometry.current.clear()
+    setWorkerStatistics(null)
   }, [enabledPorts, pointLimit])
   const allSamples = paused && frozenSamples ? frozenSamples : store.samples
   const liveEndIndex = Math.max(0, allSamples.length - 1)
-  const endIndex = clamp(viewEndIndex ?? liveEndIndex, 0, liveEndIndex)
-  const cursors = useMemo(
-    () => followPlotCursors(cursorSelection, endIndex, allSamples.length - 1),
-    [cursorSelection, endIndex, allSamples.length]
+  const viewEndIndex =
+    viewEndId === null ? null : Math.max(0, firstIndexAfterId(allSamples, viewEndId) - 1)
+  const historyExpired =
+    viewEndId !== null && !!allSamples.length && viewEndId < allSamples.at(0)!.id
+  const setViewEndIndex = useCallback(
+    (index: number | null): void => {
+      setViewEndTime(null)
+      setViewEndId(
+        index === null ? null : (allSamples.at(clamp(index, 0, liveEndIndex))?.id ?? null)
+      )
+    },
+    [allSamples, liveEndIndex]
   )
+  const endIndex = clamp(viewEndIndex ?? liveEndIndex, 0, liveEndIndex)
+  const cursors = useMemo(() => {
+    void revision
+    if (cursorMode === 'fixed' && fixedCursorIds) {
+      const a = firstIndexAfterId(allSamples, fixedCursorIds.a) - 1
+      const b = firstIndexAfterId(allSamples, fixedCursorIds.b) - 1
+      return a >= 0 &&
+        b >= 0 &&
+        allSamples.at(a)?.id === fixedCursorIds.a &&
+        allSamples.at(b)?.id === fixedCursorIds.b
+        ? { a, b }
+        : null
+    }
+    return followPlotCursors(cursorSelection, endIndex, allSamples.length - 1)
+  }, [cursorMode, fixedCursorIds, allSamples, revision, cursorSelection, endIndex])
   const setCursors = useCallback(
     (value: React.SetStateAction<PlotCursors | null>): void => {
-      setCursorSelection((current) => {
-        const next =
-          typeof value === 'function'
-            ? value(followPlotCursors(current, endIndex, liveEndIndex))
-            : value
-        return next ? { ...next, endIndex } : null
-      })
+      const next = typeof value === 'function' ? value(cursors) : value
+      setCursorSelection(next ? { ...next, endIndex } : null)
+      setFixedCursorIds(
+        next ? { a: allSamples.at(next.a)!.id, b: allSamples.at(next.b)!.id } : null
+      )
     },
-    [endIndex, liveEndIndex]
+    [cursors, endIndex, allSamples]
   )
   const viewStartIndex = endIndex - xWindowPoints + 1
-  const startIndex = Math.max(0, viewStartIndex)
+  const timeEnd = viewEndTime ?? allSamples.at(endIndex)?.timestamp ?? 0
+  const timeSpan = timeWindow
+  const timeStart = timeEnd - timeSpan
+  const startIndex =
+    xMode === 'time'
+      ? Math.min(endIndex, indexAtTime(allSamples, timeStart))
+      : Math.max(0, viewStartIndex)
   const visibleCount = Math.min(allSamples.length, Math.max(0, endIndex - startIndex + 1))
   // The ring mutates in place; revision invalidates derived views once per presentation batch.
   const channelNames = useMemo(() => {
@@ -340,8 +443,37 @@ export function PlotPanel({
   )
   const windowStatistics = useMemo(() => {
     void revision
-    return measurePlot(allSamples, startIndex, endIndex, activeChannelNames)
-  }, [allSamples, revision, startIndex, endIndex, activeChannelNames])
+    if (!workerReady)
+      return fallbackStatistics.current.measure(
+        allSamples,
+        startIndex,
+        endIndex,
+        activeChannelNames
+      )
+    return Object.fromEntries(
+      activeChannelNames.map((name) => [
+        name,
+        workerStatistics?.window[name] ?? {
+          count: 0,
+          min: Infinity,
+          max: -Infinity,
+          mean: 0,
+          peakToPeak: NaN,
+          latest: null,
+          a: null,
+          b: null
+        }
+      ])
+    )
+  }, [
+    allSamples,
+    revision,
+    startIndex,
+    endIndex,
+    activeChannelNames,
+    workerReady,
+    workerStatistics
+  ])
   const autoYRange = useMemo<YRange>(() => {
     let min = Infinity,
       max = -Infinity
@@ -366,18 +498,18 @@ export function PlotPanel({
           max = Math.max(max, item.max)
         }
     if (!Number.isFinite(min) || !Number.isFinite(max)) return { min: -1, max: 1 }
-    const padding = (max - min || Math.max(Math.abs(max), 1)) * 0.1
-    return { min: min - padding, max: max + padding }
+    return paddedRange(min, max)
   }, [windowStatistics, yAutoMode, allSamples, startIndex, endIndex, activeChannelNames])
-  const yRange = manualYRange ?? autoYRange
+  const stableYRange = useMemo(
+    () => autoRange.current.update(autoYRange, performance.now()),
+    [autoYRange]
+  )
+  const yRange = manualYRange ?? stableYRange
   const ySpan = Math.max(Number.EPSILON, yRange.max - yRange.min)
   const valueToY = useCallback(
     (value: number) => plotBottom - ((value - yRange.min) / ySpan) * plotHeight,
     [yRange.min, ySpan]
   )
-  const timeStart = allSamples.at(startIndex)?.timestamp ?? 0
-  const timeEnd = allSamples.at(endIndex)?.timestamp ?? timeStart
-  const timeSpan = Math.max(1, timeEnd - timeStart)
   const indexToX = (index: number): number =>
     plotLeft +
     (xMode === 'time'
@@ -416,46 +548,23 @@ export function PlotPanel({
           color: plotColors.series[colorIndex],
           min: stats.count ? stats.min : 0,
           max: stats.count ? stats.max : 0,
-          latest: stats.latest ?? NaN,
-          renderPoints: workerRenderingRef.current
-            ? []
-            : plotVertices(
-                allSamples,
-                name,
-                store.channels.get(name) || '',
-                startIndex - 1,
-                endIndex + 1,
-                canvasWidth,
-                (sample, index) =>
-                  xMode === 'time'
-                    ? (sample.timestamp - timeStart) / timeSpan
-                    : (index - viewStartIndex) / Math.max(1, xWindowPoints - 1)
-              )
+          latest: stats.latest ?? NaN
         }
       }),
-    [
-      activeChannelNames,
-      windowStatistics,
-      channelNames,
-      plotColors.series,
-      allSamples,
-      store,
-      startIndex,
-      endIndex,
-      canvasWidth,
-      xMode,
-      timeStart,
-      timeSpan,
-      viewStartIndex,
-      xWindowPoints
-    ]
+    [activeChannelNames, windowStatistics, channelNames, plotColors.series]
   )
+
+  const hasSeries = series.length > 0
 
   const measurement = useMemo(() => {
     // The ring also changes in place once it reaches capacity.
     void revision
-    return cursors ? measurePlot(allSamples, cursors.a, cursors.b, activeChannelNames) : null
-  }, [allSamples, cursors, activeChannelNames, revision])
+    return cursors
+      ? workerReady
+        ? (workerStatistics?.measurement ?? null)
+        : fallbackStatistics.current.measure(allSamples, cursors.a, cursors.b, activeChannelNames)
+      : null
+  }, [allSamples, cursors, activeChannelNames, revision, workerReady, workerStatistics])
   const hoverIndex = hoverState ? xToIndex(hoverState.x) : 0
   const hover =
     hoverState && allSamples.length
@@ -473,6 +582,7 @@ export function PlotPanel({
       : null
   const endMeasurement = useCallback((): void => {
     setCursorSelection(null)
+    setFixedCursorIds(null)
     setPaused(false)
     setFrozenSamples(null)
     if (measurementWindow.current !== null) {
@@ -480,7 +590,7 @@ export function PlotPanel({
       measurementWindow.current = null
     }
     setViewEndIndex(null)
-  }, [])
+  }, [setViewEndIndex])
   const beginMeasurement = (): void => {
     if (cursors) {
       endMeasurement()
@@ -507,13 +617,14 @@ export function PlotPanel({
         next < startIndex || next > endIndex
           ? Math.min(liveEndIndex, next + Math.floor(xWindowPoints / 2))
           : endIndex
-      setCursorSelection((current) => {
-        const latest = followPlotCursors(current, endIndex, liveEndIndex)
-        return latest ? { ...latest, [which]: next, endIndex: targetEnd } : null
-      })
+      if (cursors) {
+        const updated = { ...cursors, [which]: next }
+        setCursorSelection({ ...updated, endIndex: targetEnd })
+        setFixedCursorIds({ a: allSamples.at(updated.a)!.id, b: allSamples.at(updated.b)!.id })
+      }
       if (targetEnd !== endIndex) setViewEndIndex(targetEnd)
     },
-    [liveEndIndex, startIndex, endIndex, xWindowPoints]
+    [liveEndIndex, startIndex, endIndex, xWindowPoints, setViewEndIndex, cursors, allSamples]
   )
   useEffect(
     () =>
@@ -543,6 +654,8 @@ export function PlotPanel({
               ),
               rows: activeChannelNames.map((name) => {
                 const stats = measurement[name]
+                if (!stats)
+                  return [store.channelLabel(name), '—', '—', '—', '0', '—', '—', '—', '—']
                 return [
                   store.channelLabel(name),
                   show(stats.a),
@@ -590,7 +703,8 @@ export function PlotPanel({
     100
   )
   const timelineStartPercent = clamp(
-    timelineEndPercent - ((xWindowPoints - 1) / timelineSpan) * 100,
+    timelineEndPercent -
+      (((xMode === 'time' ? visibleCount : xWindowPoints) - 1) / timelineSpan) * 100,
     0,
     100
   )
@@ -598,17 +712,85 @@ export function PlotPanel({
 
   useEffect(() => {
     const target = curveCanvasRef.current
-    if (!target || transferredCanvasRef.current === target) return
-    if (typeof target.transferControlToOffscreen !== 'function') return
-    const worker =
-      plotWorkerRef.current ||
-      new Worker(new URL('../workers/plot.worker.ts', import.meta.url), { type: 'module' })
+    if (!target || collapsed || !hasSeries || mainFallback) return
+    if (typeof target.transferControlToOffscreen !== 'function') {
+      setMainFallback(true)
+      setRendererStatus('兼容绘图')
+      return
+    }
+    const worker = new Worker(new URL('../workers/plot.worker.ts', import.meta.url), {
+      type: 'module'
+    })
     plotWorkerRef.current = worker
-    const offscreen = target.transferControlToOffscreen()
-    worker.postMessage({ type: 'init', canvas: offscreen }, [offscreen])
-    transferredCanvasRef.current = target
-    workerRenderingRef.current = true
-  }, [collapsed, series.length])
+    workerSyncRef.current = { key: '', lastId: 0 }
+    let alive = true
+    const fail = (reason: string): void => {
+      if (!alive) return
+      alive = false
+      worker.terminate()
+      plotWorkerRef.current = null
+      workerRenderingRef.current = false
+      setWorkerReady(false)
+      setRendererReason(reason)
+      if (canvasFallback || rendererMode === 'canvas') {
+        setMainFallback(true)
+        setRendererStatus('兼容绘图（主线程）')
+      } else {
+        setCanvasFallback(true)
+        setRendererStatus('切换兼容绘图')
+      }
+      setCanvasEpoch((value) => value + 1)
+    }
+    const timeout = window.setTimeout(() => fail('绘图引擎初始化超时'), 5000)
+    worker.onmessage = (event) => {
+      if (!alive) return
+      if (event.data.type === 'ready') {
+        window.clearTimeout(timeout)
+        workerRenderingRef.current = true
+        setWorkerReady(true)
+        setRendererStatus(event.data.backend === 'webgl2' ? 'WebGL2' : '兼容绘图')
+      } else if (
+        event.data.type === 'statistics' &&
+        event.data.requestId === statsRequest.current
+      ) {
+        setWorkerStatistics(event.data)
+      } else if (event.data.type === 'failed') fail(event.data.reason)
+      else if (event.data.type === 'frame' && target.isConnected) {
+        target.dataset.renderer = event.data.backend
+        target.dataset.frame = String(event.data.requestId)
+        target.dataset.renderMs = String(event.data.duration)
+        target.dataset.segments = String(event.data.segments)
+        target.dataset.xSpan = String(event.data.xSpan)
+        target.dataset.yMin = String(event.data.yMin)
+        target.dataset.yMax = String(event.data.yMax)
+      }
+    }
+    worker.onerror = (event) => {
+      event.preventDefault()
+      fail(event.message || '绘图线程异常')
+    }
+    try {
+      const offscreen = target.transferControlToOffscreen()
+      transferredCanvasRef.current = target
+      // Suppress main-thread drawing as soon as ownership is transferred.
+      workerRenderingRef.current = true
+      worker.postMessage(
+        { type: 'init', canvas: offscreen, mode: canvasFallback ? 'canvas' : rendererMode },
+        [offscreen]
+      )
+    } catch (error) {
+      fail(String(error))
+    }
+    return () => {
+      alive = false
+      window.clearTimeout(timeout)
+      worker.terminate()
+      if (plotWorkerRef.current === worker) plotWorkerRef.current = null
+      workerRenderingRef.current = false
+      transferredCanvasRef.current = null
+      setWorkerReady(false)
+    }
+  }, [collapsed, hasSeries, canvasEpoch, mainFallback, canvasFallback, rendererMode])
 
   useEffect(() => {
     const worker = plotWorkerRef.current
@@ -618,15 +800,31 @@ export function PlotPanel({
     const lastId = allSamples.at(-1)?.id || 0
     const reset = previous.key !== syncKey || lastId < previous.lastId || !allSamples.length
     const additionStart = reset ? 0 : firstIndexAfterId(allSamples, previous.lastId)
-    worker.postMessage({
-      type: 'data',
-      reset,
-      samples: allSamples.slice(additionStart),
-      pointLimit,
-      pruneBeforeId: allSamples.at(0)?.id || 0
-    })
+    const packet = packSamples(allSamples.slice(additionStart))
+    worker.postMessage(
+      {
+        type: 'data',
+        reset,
+        packet,
+        pointLimit,
+        pruneBeforeId: allSamples.at(0)?.id || 0
+      },
+      [packet.numbers.buffer, packet.sources.buffer, packet.gaps.buffer]
+    )
     workerSyncRef.current = { key: syncKey, lastId }
-  }, [allSamples, revision, enabledPorts, paused, pointLimit, startId])
+  }, [allSamples, revision, enabledPorts, paused, pointLimit, startId, workerReady, canvasEpoch])
+
+  useEffect(() => {
+    if (!workerReady || !plotWorkerRef.current) return
+    plotWorkerRef.current.postMessage({
+      type: 'statistics',
+      requestId: ++statsRequest.current,
+      start: startIndex,
+      end: endIndex,
+      channels: activeChannelNames,
+      cursors
+    })
+  }, [revision, startIndex, endIndex, activeChannelNames, cursors, workerReady, paused, startId])
 
   useEffect(() => {
     const worker = plotWorkerRef.current
@@ -635,11 +833,14 @@ export function PlotPanel({
     const rect = host.getBoundingClientRect()
     worker.postMessage({
       type: 'render',
+      requestId: ++frameSequence.current,
+      lineWidth,
       width: rect.width,
       height: rect.height,
       dpr: Math.min(window.devicePixelRatio || 1, 2),
       xWindowPoints,
       endOffset: endIndex - liveEndIndex,
+      endId: allSamples.at(endIndex)?.id ?? 0,
       yMin: yRange.min,
       yMax: yRange.max,
       channels: series.map((item) => ({
@@ -664,72 +865,84 @@ export function PlotPanel({
     timeStart,
     timeSpan,
     lineMode,
+    lineWidth,
+    canvasWidth,
+    canvasHeight,
+    workerReady,
+    canvasEpoch,
+    allSamples,
+    revision,
     store
   ])
 
   useEffect(() => {
     const canvas = curveCanvasRef.current
     const host = plotCanvasRef.current
-    if (workerRenderingRef.current || !canvas || !host || collapsed || !series.length) return
+    if (
+      workerRenderingRef.current ||
+      !canvas ||
+      !host ||
+      collapsed ||
+      !series.length ||
+      transferredCanvasRef.current === canvas
+    )
+      return
     const rect = host.getBoundingClientRect()
-    const dpr = Math.min(window.devicePixelRatio || 1, 2)
-    const targetWidth = Math.max(1, Math.round(rect.width * dpr))
-    const targetHeight = Math.max(1, Math.round(rect.height * dpr))
-    if (canvas.width !== targetWidth) canvas.width = targetWidth
-    if (canvas.height !== targetHeight) canvas.height = targetHeight
-    const context = canvas.getContext('2d')
-    if (!context) return
-    const drawSpan = Math.max(Number.EPSILON, yRange.max - yRange.min)
-    context.setTransform(dpr * (rect.width / 1000), 0, 0, dpr * (rect.height / 420), 0, 0)
-    context.clearRect(0, 0, 1000, 420)
-    context.save()
-    context.beginPath()
-    context.rect(plotLeft, plotTop, plotWidth, plotHeight)
-    context.clip()
-    context.lineWidth = 2.5 * (1000 / Math.max(rect.width, 1))
-    context.lineJoin = 'round'
-    context.lineCap = 'round'
-    for (const item of series) {
-      if (!item.renderPoints.length) continue
-      context.beginPath()
-      let drawing = false
-      let previousY = 0
-      item.renderPoints.forEach((point) => {
-        const x =
-          plotLeft +
-          (xMode === 'time'
-            ? (point.timestamp - timeStart) / timeSpan
-            : (point.index - viewStartIndex) / Math.max(1, xWindowPoints - 1)) *
-            plotWidth
-        const y = plotBottom - ((point.value - yRange.min) / drawSpan) * plotHeight
-        if (!drawing || point.move) context.moveTo(x, y)
-        else {
-          if (lineMode === 'step') context.lineTo(x, previousY)
-          context.lineTo(x, y)
-        }
-        previousY = y
-        drawing = true
+    const xMin =
+      xMode === 'time' ? timeStart : (allSamples.at(endIndex)?.id ?? 0) - xWindowPoints + 1
+    const xMax = xMode === 'time' ? timeStart + timeSpan : xMin + Math.max(1, xWindowPoints - 1)
+    const renderer = new CanvasRenderer(canvas)
+    renderer.render(
+      {
+        width: rect.width,
+        height: rect.height,
+        dpr: Math.min(window.devicePixelRatio || 1, 2),
+        xMin,
+        xMax,
+        yMin: yRange.min,
+        yMax: yRange.max,
+        lineWidth
+      },
+      fallbackGeometry.current.build(allSamples, {
+        start: startIndex,
+        end: endIndex,
+        width: rect.width * 0.812,
+        xMin,
+        xMax,
+        xMode,
+        lineMode,
+        channels: series.map((item) => ({
+          name: item.name,
+          port: store.channels.get(item.name) || '',
+          color: item.color
+        }))
       })
-      context.strokeStyle = item.color
-      context.stroke()
-    }
-    context.restore()
+    )
+    canvas.dataset.renderer = 'canvas-main'
+    renderer.dispose()
   }, [
     collapsed,
-    endIndex,
-    height,
     series,
-    xWindowPoints,
-    yRange,
+    endIndex,
+    allSamples,
+    startIndex,
     xMode,
     timeStart,
     timeSpan,
+    xWindowPoints,
+    yRange,
+    lineWidth,
     lineMode,
-    viewStartIndex
+    store,
+    canvasWidth,
+    canvasHeight,
+    mainFallback,
+    canvasEpoch
   ])
+
   const xTickCount = clamp(Math.floor(canvasWidth / 135) + 1, 6, 16)
   const xTicks = useMemo(() => {
-    const count = Math.min(xTickCount, xWindowPoints)
+    const count = xMode === 'time' ? xTickCount : Math.min(xTickCount, xWindowPoints)
     if (count <= 1) return [{ x: plotRight, pointOffset: endIndex - liveEndIndex }]
     return Array.from({ length: count }, (_, index) => {
       const ratio = index / (count - 1)
@@ -739,17 +952,14 @@ export function PlotPanel({
           Math.round(viewStartIndex + ratio * Math.max(0, xWindowPoints - 1)) - liveEndIndex
       }
     })
-  }, [endIndex, liveEndIndex, viewStartIndex, xTickCount, xWindowPoints])
+  }, [endIndex, liveEndIndex, viewStartIndex, xTickCount, xWindowPoints, xMode])
   const yTicks = useMemo(
     () =>
-      Array.from({ length: 6 }, (_, index) => {
-        const ratio = index / 5
-        return {
-          y: plotBottom - ratio * plotHeight,
-          value: yRange.min + ratio * ySpan
-        }
-      }),
-    [yRange.min, ySpan]
+      niceTicks(yRange.min, yRange.max).map((value) => ({
+        y: plotBottom - ((value - yRange.min) / ySpan) * plotHeight,
+        value
+      })),
+    [yRange.min, yRange.max, ySpan]
   )
   const pidChannel = channelNames.includes(pidSettings.channel)
     ? pidSettings.channel
@@ -1021,7 +1231,8 @@ export function PlotPanel({
   }
   const finishResize = (event: React.PointerEvent<HTMLDivElement>): void => {
     if (!resizing) return
-    event.currentTarget.releasePointerCapture(event.pointerId)
+    if (event.currentTarget.hasPointerCapture(event.pointerId))
+      event.currentTarget.releasePointerCapture(event.pointerId)
     localStorage.setItem(plotHeightKey, String(latestHeight.current))
     setResizing(false)
   }
@@ -1031,8 +1242,29 @@ export function PlotPanel({
     if (!rect) return
     const pointerX = clamp(((event.clientX - rect.left) / rect.width) * 1000, plotLeft, plotRight)
     const ratio = (pointerX - plotLeft) / plotWidth
+    if (xMode === 'time') {
+      const next = clamp(timeWindow * wheelScale(event.deltaY, event.deltaMode), 1, 86400000)
+      const anchor = timeStart + ratio * timeSpan
+      const nextEnd = clamp(
+        anchor + (1 - ratio) * next,
+        allSamples.at(0)?.timestamp ?? 0,
+        allSamples.at(-1)?.timestamp ?? 0
+      )
+      setTimeWindow(next)
+      localStorage.setItem('serialflow.plotTimeWindow', String(next))
+      const latest = allSamples.at(-1)?.timestamp ?? 0
+      setViewEndIndex(
+        nextEnd >= latest
+          ? null
+          : Math.min(liveEndIndex, Math.max(0, indexAtTime(allSamples, nextEnd, true) - 1))
+      )
+      setViewEndTime(nextEnd >= latest ? null : nextEnd)
+      return
+    }
     const centerIndex = viewStartIndex + ratio * Math.max(0, xWindowPoints - 1)
-    const next = Math.round(clamp(xWindowPoints * (event.deltaY > 0 ? 1.25 : 0.8), 1, pointLimit))
+    const next = Math.round(
+      clamp(xWindowPoints * wheelScale(event.deltaY, event.deltaMode), 1, pointLimit)
+    )
     const nextEnd = Math.round(
       clamp(centerIndex + (1 - ratio) * Math.max(0, next - 1), 0, liveEndIndex)
     )
@@ -1047,34 +1279,53 @@ export function PlotPanel({
   }
   const handleYWheel = (event: React.WheelEvent<SVGRectElement>): void => {
     event.preventDefault()
-    const factor = event.deltaY > 0 ? 1.2 : 0.8
+    const factor = wheelScale(event.deltaY, event.deltaMode)
     const rect = event.currentTarget.ownerSVGElement?.getBoundingClientRect()
     if (!rect) return
     const pointerY = clamp(((event.clientY - rect.top) / rect.height) * 420, plotTop, plotBottom)
     const center = yRange.max - ((pointerY - plotTop) / plotHeight) * ySpan
-    setManualYRange({
-      min: center - (center - yRange.min) * factor,
-      max: center + (yRange.max - center) * factor
-    })
+    setManualYRange(zoomRange(yRange, center, factor))
     setAxisCursor({ axis: 'y', y: pointerY, value: center })
   }
   const beginXDrag = (event: React.PointerEvent<SVGRectElement>): void => {
     event.preventDefault()
-    xDrag.current = { x: event.clientX, end: endIndex }
+    xDrag.current = {
+      x: event.clientX,
+      end: endIndex,
+      id: allSamples.at(endIndex)?.id ?? 0,
+      time: timeEnd
+    }
     event.currentTarget.setPointerCapture(event.pointerId)
   }
   const moveXDrag = (event: React.PointerEvent<SVGRectElement>): void => {
     if (!xDrag.current) return
     const rect = event.currentTarget.ownerSVGElement?.getBoundingClientRect()
     if (!rect) return
+    if (xMode === 'time') {
+      const requestedTime =
+        xDrag.current.time -
+        ((event.clientX - xDrag.current.x) / rect.width) * (1000 / plotWidth) * timeSpan
+      const latest = allSamples.at(-1)?.timestamp ?? 0
+      const target = clamp(requestedTime, allSamples.at(0)?.timestamp ?? 0, latest)
+      setViewEndIndex(
+        target >= latest
+          ? null
+          : Math.min(liveEndIndex, Math.max(0, indexAtTime(allSamples, target, true) - 1))
+      )
+      setViewEndTime(target >= latest ? null : target)
+      return
+    }
     const deltaPoints =
       ((event.clientX - xDrag.current.x) / rect.width) * (1000 / plotWidth) * xWindowPoints
-    const next = Math.round(clamp(xDrag.current.end - deltaPoints, 0, liveEndIndex))
+    const next = Math.round(
+      clamp(firstIndexAfterId(allSamples, xDrag.current.id) - 1 - deltaPoints, 0, liveEndIndex)
+    )
     setViewEndIndex(next >= liveEndIndex ? null : next)
   }
   const finishXDrag = (event: React.PointerEvent<SVGRectElement>): void => {
     if (!xDrag.current) return
-    event.currentTarget.releasePointerCapture(event.pointerId)
+    if (event.currentTarget.hasPointerCapture(event.pointerId))
+      event.currentTarget.releasePointerCapture(event.pointerId)
     xDrag.current = null
   }
   const beginYDrag = (event: React.PointerEvent<SVGRectElement>): void => {
@@ -1095,7 +1346,8 @@ export function PlotPanel({
   }
   const finishYDrag = (event: React.PointerEvent<SVGRectElement>): void => {
     if (!yDrag.current) return
-    event.currentTarget.releasePointerCapture(event.pointerId)
+    if (event.currentTarget.hasPointerCapture(event.pointerId))
+      event.currentTarget.releasePointerCapture(event.pointerId)
     yDrag.current = null
   }
   const moveXAxisCursor = (event: React.PointerEvent<SVGRectElement>): void => {
@@ -1157,7 +1409,7 @@ export function PlotPanel({
     xRangeDrag.current = {
       mode,
       x: event.clientX,
-      start: endIndex - xWindowPoints + 1,
+      start: xMode === 'time' ? startIndex : endIndex - xWindowPoints + 1,
       end: endIndex,
       domainMin: 0,
       domainMax: pointLimit - 1
@@ -1178,6 +1430,20 @@ export function PlotPanel({
       setViewEndIndex(nextEnd >= liveEndIndex ? null : nextEnd)
       return
     }
+    if (xMode === 'time') {
+      const nextStart = drag.mode === 'start' ? clamp(drag.start + delta, 0, drag.end) : drag.start
+      const nextEnd =
+        drag.mode === 'end' ? clamp(drag.end + delta, nextStart, liveEndIndex) : drag.end
+      const duration = Math.max(
+        1,
+        (allSamples.at(nextEnd)?.timestamp ?? timeEnd) -
+          (allSamples.at(nextStart)?.timestamp ?? timeStart)
+      )
+      setTimeWindow(duration)
+      localStorage.setItem('serialflow.plotTimeWindow', String(duration))
+      setViewEndIndex(nextEnd >= liveEndIndex ? null : nextEnd)
+      return
+    }
     if (drag.mode === 'start') {
       const nextWindow = Math.round(clamp(drag.end - (drag.start + delta) + 1, 1, pointLimit))
       setXWindowPoints(nextWindow)
@@ -1193,7 +1459,8 @@ export function PlotPanel({
   const finishXRangeDrag = (event: React.PointerEvent<HTMLElement>): void => {
     if (!xRangeDrag.current) return
     if (event.currentTarget.hasPointerCapture(event.pointerId))
-      event.currentTarget.releasePointerCapture(event.pointerId)
+      if (event.currentTarget.hasPointerCapture(event.pointerId))
+        event.currentTarget.releasePointerCapture(event.pointerId)
     xRangeDrag.current = null
     setTimelineDragging(false)
   }
@@ -1224,7 +1491,10 @@ export function PlotPanel({
           {measurementError && <span role="alert">{measurementError}</span>}
           <span>
             {allSamples.length.toLocaleString()} 个采样点 · {series.length} 个通道 ·{' '}
-            {xWindowPoints.toLocaleString()} 点视窗 ·{' '}
+            {xMode === 'time'
+              ? `${timeWindow / 1000} 秒视窗`
+              : `${xWindowPoints.toLocaleString()} 点视窗`}{' '}
+            ·{' '}
             {receivePaused
               ? '接收已暂停'
               : paused
@@ -1232,6 +1502,10 @@ export function PlotPanel({
                 : viewEndIndex === null
                   ? '实时'
                   : '历史'}
+            {cursorMode === 'fixed' && fixedCursorIds && !cursors && (
+              <span role="status"> · 固定游标采样已淘汰</span>
+            )}
+            {historyExpired && <span role="status"> · 历史数据已淘汰，显示最早可用采样</span>}
             {store.programError && (
               <span role="status" title={store.programError}>
                 {' '}
@@ -1259,7 +1533,14 @@ export function PlotPanel({
             >
               {viewEndIndex === null ? '实时' : '回到实时'}
             </button>
-            <button title="持续按当前视窗自动缩放 Y 轴" onClick={() => setManualYRange(null)}>
+            <button title="适配当前数据后固定量程" onClick={() => setManualYRange(autoYRange)}>
+              适配一次
+            </button>
+            <button
+              aria-pressed={manualYRange === null}
+              title="快速扩展、延迟回缩自动量程"
+              onClick={() => setManualYRange(null)}
+            >
               Y 自动
             </button>
             <button
@@ -1342,6 +1623,112 @@ export function PlotPanel({
               <div className="plot-options-popover" role="dialog" aria-label="曲线设置">
                 <strong>曲线设置</strong>
                 <label>
+                  游标模式
+                  <select
+                    aria-label="游标模式"
+                    value={cursorMode}
+                    onChange={(event) => {
+                      if (cursors) {
+                        setCursorSelection({ ...cursors, endIndex })
+                        setFixedCursorIds({
+                          a: allSamples.at(cursors.a)!.id,
+                          b: allSamples.at(cursors.b)!.id
+                        })
+                      }
+                      setCursorMode(event.target.value as 'follow' | 'fixed')
+                    }}
+                  >
+                    <option value="follow">跟随视窗</option>
+                    <option value="fixed">固定采样</option>
+                  </select>
+                </label>
+
+                <label>
+                  绘图引擎
+                  <select
+                    aria-label="绘图引擎"
+                    value={rendererMode}
+                    onChange={(event) => {
+                      const mode = event.target.value as RendererMode
+                      setRendererMode(mode)
+                      setCanvasFallback(false)
+                      setMainFallback(false)
+                      setRendererReason('')
+                      setCanvasEpoch((value) => value + 1)
+                      localStorage.setItem('serialflow.plotRenderer', mode)
+                    }}
+                  >
+                    <option value="auto">自动</option>
+                    <option value="webgl2">WebGL2</option>
+                    <option value="canvas">兼容绘图</option>
+                  </select>
+                </label>
+                <small role="status">
+                  当前：{rendererStatus}
+                  {rendererReason ? ` · ${rendererReason}` : ''}
+                </small>
+                <label>
+                  线宽（px）
+                  <input
+                    aria-label="曲线线宽"
+                    type="number"
+                    min="0.5"
+                    max="8"
+                    step="0.5"
+                    value={lineWidth}
+                    onChange={(event) => {
+                      const value = clamp(Number(event.target.value) || 1.5, 0.5, 8)
+                      setLineWidth(value)
+                      localStorage.setItem('serialflow.plotLineWidth', String(value))
+                    }}
+                  />
+                </label>
+                {xMode === 'time' && (
+                  <label>
+                    显示时长（秒）
+                    <input
+                      aria-label="曲线显示时长"
+                      type="number"
+                      min="0.001"
+                      max="86400"
+                      step="1"
+                      value={timeWindow / 1000}
+                      onChange={(event) => {
+                        const value = clamp((Number(event.target.value) || 10) * 1000, 1, 86400000)
+                        setTimeWindow(value)
+                        localStorage.setItem('serialflow.plotTimeWindow', String(value))
+                      }}
+                    />
+                  </label>
+                )}
+                <label>
+                  Y 最小值
+                  <input
+                    aria-label="Y 最小值"
+                    type="number"
+                    value={yRange.min}
+                    onChange={(event) => {
+                      const min = Number(event.target.value)
+                      if (Number.isFinite(min) && min < yRange.max)
+                        setManualYRange({ min, max: yRange.max })
+                    }}
+                  />
+                </label>
+                <label>
+                  Y 最大值
+                  <input
+                    aria-label="Y 最大值"
+                    type="number"
+                    value={yRange.max}
+                    onChange={(event) => {
+                      const max = Number(event.target.value)
+                      if (Number.isFinite(max) && max > yRange.min)
+                        setManualYRange({ min: yRange.min, max })
+                    }}
+                  />
+                </label>
+
+                <label>
                   绘图点数
                   <input
                     type="number"
@@ -1371,6 +1758,7 @@ export function PlotPanel({
                     aria-pressed={xMode === 'points'}
                     onClick={() => {
                       setXMode('points')
+                      localStorage.setItem('serialflow.plotXMode', 'points')
                       setHover(null)
                     }}
                   >
@@ -1381,13 +1769,90 @@ export function PlotPanel({
                     aria-pressed={xMode === 'time'}
                     onClick={() => {
                       setXMode('time')
+                      localStorage.setItem('serialflow.plotXMode', 'time')
                       setHover(null)
                     }}
                   >
                     时间
                   </button>
                 </div>
-                <small>时间轴使用电脑接收时间，设备采样周期需以设备时间戳为准。</small>
+                <small>时间窗口保持固定时长。每个串口独立配置时间源；更改时间源会清空曲线。</small>
+                {enabledPorts.map((port) => {
+                  const clock = clockSettings[port] ?? defaultClock
+                  const update = (patch: Partial<SampleClock>): void =>
+                    setClockSettings((current) => ({
+                      ...current,
+                      [port]: normalizeClock({ ...clock, ...patch })
+                    }))
+                  return (
+                    <div key={port} className="plot-clock-setting">
+                      <label>
+                        {port} 时间源
+                        <select
+                          aria-label={`${port} 时间源`}
+                          value={clock.mode}
+                          onChange={(event) =>
+                            update({ mode: event.target.value as SampleClock['mode'] })
+                          }
+                        >
+                          <option value="receive">上位机接收时间</option>
+                          <option value="period">固定采样周期</option>
+                          <option value="device">设备时间字段</option>
+                        </select>
+                      </label>
+                      {clock.mode === 'period' && (
+                        <label>
+                          采样周期（ms）
+                          <input
+                            type="number"
+                            min="0.001"
+                            step="0.001"
+                            value={clock.periodMs}
+                            onChange={(event) => update({ periodMs: Number(event.target.value) })}
+                          />
+                        </label>
+                      )}
+                      {clock.mode === 'device' && (
+                        <>
+                          <label>
+                            时间字段
+                            <input
+                              aria-label={`${port} 设备时间字段`}
+                              defaultValue={clock.field}
+                              onBlur={(event) => {
+                                if (event.target.value !== clock.field)
+                                  update({ field: event.target.value })
+                              }}
+                            />
+                          </label>
+                          <label>
+                            每单位毫秒数
+                            <input
+                              type="number"
+                              min="0.000001"
+                              step="0.001"
+                              value={clock.unitMs}
+                              onChange={(event) => update({ unitMs: Number(event.target.value) })}
+                            />
+                          </label>
+                          <label>
+                            回绕模数（0 为重启）
+                            <input
+                              type="number"
+                              min="0"
+                              value={clock.rollover}
+                              onChange={(event) => update({ rollover: Number(event.target.value) })}
+                            />
+                          </label>
+                        </>
+                      )}
+                    </div>
+                  )
+                })}
+                <small>
+                  设备时间相对首包接收时间显示。固定周期不能识别无序号的丢包；多源时间回退会重新对齐并断开连线，不代表设备已精确同步。
+                </small>
+                {store.clockWarning && <small role="status">{store.clockWarning}</small>}
                 <span>连线方式</span>
                 <div className="mini-segment" role="group" aria-label="曲线连线方式">
                   <button
@@ -1881,7 +2346,12 @@ export function PlotPanel({
         >
           {series.length ? (
             <>
-              <canvas ref={curveCanvasRef} className="plot-curve-canvas" aria-hidden="true" />
+              <canvas
+                key={canvasEpoch}
+                ref={curveCanvasRef}
+                className="plot-curve-canvas"
+                aria-hidden="true"
+              />
               <svg viewBox="0 0 1000 420" preserveAspectRatio="none" aria-label="实时数据曲线">
                 {xTicks.map((tick) => (
                   <g key={tick.pointOffset}>
@@ -1985,9 +2455,33 @@ export function PlotPanel({
                     if (cursors) {
                       moveMeasurement(event, activeCursor)
                       setActiveCursor(activeCursor === 'a' ? 'b' : 'a')
+                    } else if (event.button === 0) {
+                      beginXDrag(event)
+                      beginYDrag(event)
                     }
                   }}
-                  onPointerMove={cursors ? undefined : handlePlotHover}
+                  onWheel={(event) => {
+                    handleXWheel(event)
+                    handleYWheel(event)
+                  }}
+                  onPointerUp={(event) => {
+                    finishXDrag(event)
+                    finishYDrag(event)
+                  }}
+                  onPointerCancel={() => {
+                    xDrag.current = null
+                    yDrag.current = null
+                  }}
+                  onPointerMove={
+                    cursors
+                      ? undefined
+                      : (event) => {
+                          if (xDrag.current || yDrag.current) {
+                            moveXDrag(event)
+                            moveYDrag(event)
+                          } else handlePlotHover(event)
+                        }
+                  }
                   onPointerLeave={clearPlotHover}
                 />
                 {cursors && (
@@ -2042,7 +2536,8 @@ export function PlotPanel({
                       onPointerUp={(event) => {
                         rangeDrag.current = null
                         if (event.currentTarget.hasPointerCapture(event.pointerId))
-                          event.currentTarget.releasePointerCapture(event.pointerId)
+                          if (event.currentTarget.hasPointerCapture(event.pointerId))
+                            event.currentTarget.releasePointerCapture(event.pointerId)
                       }}
                       onPointerCancel={() => {
                         rangeDrag.current = null
@@ -2098,7 +2593,8 @@ export function PlotPanel({
                           }}
                           onPointerUp={(event) => {
                             if (event.currentTarget.hasPointerCapture(event.pointerId))
-                              event.currentTarget.releasePointerCapture(event.pointerId)
+                              if (event.currentTarget.hasPointerCapture(event.pointerId))
+                                event.currentTarget.releasePointerCapture(event.pointerId)
                             cursorDrag.current = null
                           }}
                           onPointerCancel={() => {
@@ -2292,7 +2788,12 @@ export function PlotPanel({
       {!collapsed && series.length > 0 && (
         <div className="plot-x-range" aria-label="X 轴缩放和平移">
           <div className="plot-x-range-meta">
-            <span>视窗 {xWindowPoints.toLocaleString()} 点</span>
+            <span>
+              视窗{' '}
+              {xMode === 'time'
+                ? `${timeWindow / 1000} 秒`
+                : `${xWindowPoints.toLocaleString()} 点`}
+            </span>
             <span>
               {visibleCount.toLocaleString()} / {pointLimit.toLocaleString()} 点
             </span>

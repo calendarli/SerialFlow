@@ -11,11 +11,24 @@ const suite =
       ? 'serial-ui-performance'
       : process.argv[2] === 'remote'
         ? 'remote-serial-ui-smoke'
-        : process.argv[2] === 'plot'
-          ? 'plot-ui-smoke'
-          : 'firmware-ui-smoke'
+        : process.argv[2] === 'plot-renderer'
+          ? 'plot-renderer-ui'
+          : process.argv[2] === 'plot'
+            ? 'plot-ui-smoke'
+            : 'firmware-ui-smoke'
 const output = resolve(root, '.tmp', 'ui-smoke')
 await mkdir(output, { recursive: true })
+if (suite === 'plot-renderer-ui') {
+  const fixture = await Bun.build({
+    entrypoints: [resolve(root, 'scripts/plot-renderer-fixture.ts')],
+    target: 'browser',
+    format: 'iife',
+    outdir: output,
+    naming: 'plot-renderer-fixture.js'
+  })
+  if (!fixture.success)
+    throw new AggregateError(fixture.logs, 'Renderer fixture compilation failed')
+}
 const result = await Bun.build({
   entrypoints: [resolve(root, `scripts/${suite}.ts`)],
   target: 'node',
