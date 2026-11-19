@@ -1633,7 +1633,7 @@ footer > span:first-child {
   user-select: none;
 }
 .plot-grid-line {
-  stroke: #e8edf4;
+  stroke: #aebdce;
   stroke-width: 1;
   vector-effect: non-scaling-stroke;
 }

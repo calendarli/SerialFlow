@@ -80,7 +80,7 @@ const defaultSeriesColors = [
 ]
 const defaultPlotColors: PlotColors = {
   background: '#ffffff',
-  grid: '#e8edf4',
+  grid: '#aebdce',
   series: defaultSeriesColors
 }
 const plotColorsKey = 'serialflow.plotColors'
@@ -122,7 +122,11 @@ function loadPlotColors(): PlotColors {
     ) as Partial<PlotColors> | null
     return {
       background: isColor(saved?.background) ? saved.background : defaultPlotColors.background,
-      grid: isColor(saved?.grid) ? saved.grid : defaultPlotColors.grid,
+      // Upgrade the former default too, including palettes saved when editing series colors.
+      grid:
+        isColor(saved?.grid) && saved.grid.toLowerCase() !== '#e8edf4'
+          ? saved.grid
+          : defaultPlotColors.grid,
       series: defaultSeriesColors.map((color, index) =>
         isColor(saved?.series?.[index]) ? saved.series[index] : color
       )
