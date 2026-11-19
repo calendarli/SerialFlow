@@ -182,6 +182,39 @@ app.whenReady().then(async () => {
       measureRun(
         `Array.from(document.querySelector('.plot-measurements tr[data-channel="AD"]').children).map(e=>e.textContent)`
       )
+    const assertEmptyPlot = async () => {
+      await until(
+        () => run('Boolean(document.querySelector(".plot-empty"))'),
+        'empty plot waiting state'
+      )
+      assert(
+        await run(`(() => {
+          const plot = document.querySelector('.plot-canvas');
+          return plot.querySelectorAll('.plot-grid-line').length > 2 &&
+            plot.querySelectorAll('.plot-axis').length === 2 &&
+            plot.querySelectorAll('.plot-html-x-label').length > 1 &&
+            plot.querySelectorAll('.plot-html-y-label').length > 1 &&
+            !plot.querySelector('.plot-curve-canvas');
+        })()`),
+        'Empty plots retain grid and axis labels without drawing fabricated samples'
+      )
+    }
+    await assertEmptyPlot()
+    fs.writeFileSync(
+      path.join(root, '.tmp/ui-smoke/plot-empty.png'),
+      (await window.webContents.capturePage()).toPNG()
+    )
+    await click('设置')
+    await click('时间', '[aria-label="曲线 X 轴模式"] button')
+    await until(
+      () =>
+        run(
+          `Array.from(document.querySelectorAll('.plot-html-x-label')).every(e => e.textContent.endsWith(' s'))`
+        ),
+      'empty time axis shows relative seconds'
+    )
+    await click('点序号', '[aria-label="曲线 X 轴模式"] button')
+    await click('设置')
     send(['AD=10', 'AD=20', 'AD=30', 'AD=40', 'AD=50'])
     await until(
       () => run('document.querySelector(".plot-heading").textContent.includes("5 个采样点")'),
@@ -499,6 +532,7 @@ app.whenReady().then(async () => {
     )
 
     await run(`document.querySelector('[aria-label="清空曲线"]').click()`)
+    await assertEmptyPlot()
     await click('设置')
     await click('计算通道', '.plot-options-popover button')
     await click('编程模式', '.plot-program-editor button')

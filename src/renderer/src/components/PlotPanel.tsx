@@ -2344,320 +2344,310 @@ export function PlotPanel({
           className="plot-canvas"
           style={{ background: plotColors.background }}
         >
-          {series.length ? (
-            <>
-              <canvas
-                key={canvasEpoch}
-                ref={curveCanvasRef}
-                className="plot-curve-canvas"
-                aria-hidden="true"
-              />
-              <svg viewBox="0 0 1000 420" preserveAspectRatio="none" aria-label="实时数据曲线">
-                {xTicks.map((tick) => (
-                  <g key={tick.pointOffset}>
-                    <line
-                      x1={tick.x}
-                      y1={plotTop}
-                      x2={tick.x}
-                      y2={plotBottom}
-                      className="plot-grid-line"
-                      style={{ stroke: plotColors.grid }}
-                    />
-                  </g>
-                ))}
-                {yTicks.map((tick) => (
-                  <g key={tick.y}>
-                    <line
-                      x1={plotLeft}
-                      y1={tick.y}
-                      x2={plotRight}
-                      y2={tick.y}
-                      className="plot-grid-line"
-                      style={{ stroke: plotColors.grid }}
-                    />
-                  </g>
-                ))}
+          {hasSeries && (
+            <canvas
+              key={canvasEpoch}
+              ref={curveCanvasRef}
+              className="plot-curve-canvas"
+              aria-hidden="true"
+            />
+          )}
+          <svg
+            viewBox="0 0 1000 420"
+            preserveAspectRatio="none"
+            aria-label="实时数据曲线"
+            style={{ pointerEvents: hasSeries ? undefined : 'none' }}
+          >
+            {xTicks.map((tick) => (
+              <g key={tick.pointOffset}>
+                <line
+                  x1={tick.x}
+                  y1={plotTop}
+                  x2={tick.x}
+                  y2={plotBottom}
+                  className="plot-grid-line"
+                  style={{ stroke: plotColors.grid }}
+                />
+              </g>
+            ))}
+            {yTicks.map((tick) => (
+              <g key={tick.y}>
                 <line
                   x1={plotLeft}
-                  y1={plotBottom}
+                  y1={tick.y}
                   x2={plotRight}
-                  y2={plotBottom}
-                  className="plot-axis"
+                  y2={tick.y}
+                  className="plot-grid-line"
+                  style={{ stroke: plotColors.grid }}
                 />
-                <line
-                  x1={plotRight}
-                  y1={plotTop}
-                  x2={plotRight}
-                  y2={plotBottom}
-                  className="plot-axis"
-                />
-                {hoveredAxis === 'x' &&
-                  Array.from({ length: 51 }, (_, index) => {
-                    const major = index % 5 === 0
-                    const x = plotLeft + (index / 50) * plotWidth
-                    return (
-                      <line
-                        key={`x-ruler-${index}`}
-                        x1={x}
-                        y1={plotBottom}
-                        x2={x}
-                        y2={plotBottom + (major ? 17 : 9)}
-                        className={`plot-ruler-tick ${major ? 'major' : ''}`}
-                      />
-                    )
-                  })}
-                {hoveredAxis === 'y' &&
-                  Array.from({ length: 41 }, (_, index) => {
-                    const major = index % 4 === 0
-                    const y = plotTop + (index / 40) * plotHeight
-                    return (
-                      <line
-                        key={`y-ruler-${index}`}
-                        x1={plotRight}
-                        y1={y}
-                        x2={plotRight + (major ? 17 : 9)}
-                        y2={y}
-                        className={`plot-ruler-tick ${major ? 'major' : ''}`}
-                      />
-                    )
-                  })}
-                {axisCursor?.axis === 'x' && (
+              </g>
+            ))}
+            <line
+              x1={plotLeft}
+              y1={plotBottom}
+              x2={plotRight}
+              y2={plotBottom}
+              className="plot-axis"
+            />
+            <line
+              x1={plotRight}
+              y1={plotTop}
+              x2={plotRight}
+              y2={plotBottom}
+              className="plot-axis"
+            />
+            {hoveredAxis === 'x' &&
+              Array.from({ length: 51 }, (_, index) => {
+                const major = index % 5 === 0
+                const x = plotLeft + (index / 50) * plotWidth
+                return (
                   <line
-                    x1={axisCursor.x}
-                    y1={plotTop}
-                    x2={axisCursor.x}
-                    y2={plotBottom}
-                    className="plot-axis-cursor"
+                    key={`x-ruler-${index}`}
+                    x1={x}
+                    y1={plotBottom}
+                    x2={x}
+                    y2={plotBottom + (major ? 17 : 9)}
+                    className={`plot-ruler-tick ${major ? 'major' : ''}`}
                   />
-                )}
-                {axisCursor?.axis === 'y' && (
+                )
+              })}
+            {hoveredAxis === 'y' &&
+              Array.from({ length: 41 }, (_, index) => {
+                const major = index % 4 === 0
+                const y = plotTop + (index / 40) * plotHeight
+                return (
                   <line
-                    x1={plotLeft}
-                    y1={axisCursor.y}
-                    x2={plotRight}
-                    y2={axisCursor.y}
-                    className="plot-axis-cursor"
+                    key={`y-ruler-${index}`}
+                    x1={plotRight}
+                    y1={y}
+                    x2={plotRight + (major ? 17 : 9)}
+                    y2={y}
+                    className={`plot-ruler-tick ${major ? 'major' : ''}`}
                   />
-                )}
-                {hover && (
-                  <g className="plot-crosshair" pointerEvents="none">
-                    <line x1={hover.x} y1={plotTop} x2={hover.x} y2={plotBottom} />
-                  </g>
-                )}
-                <rect
-                  x={plotLeft}
-                  y={plotTop}
-                  width={plotWidth}
-                  height={plotHeight}
-                  fill="transparent"
-                  className="plot-hover-area"
-                  onPointerDown={(event) => {
-                    if (cursors) {
-                      moveMeasurement(event, activeCursor)
-                      setActiveCursor(activeCursor === 'a' ? 'b' : 'a')
-                    } else if (event.button === 0) {
-                      beginXDrag(event)
-                      beginYDrag(event)
+                )
+              })}
+            {axisCursor?.axis === 'x' && (
+              <line
+                x1={axisCursor.x}
+                y1={plotTop}
+                x2={axisCursor.x}
+                y2={plotBottom}
+                className="plot-axis-cursor"
+              />
+            )}
+            {axisCursor?.axis === 'y' && (
+              <line
+                x1={plotLeft}
+                y1={axisCursor.y}
+                x2={plotRight}
+                y2={axisCursor.y}
+                className="plot-axis-cursor"
+              />
+            )}
+            {hover && (
+              <g className="plot-crosshair" pointerEvents="none">
+                <line x1={hover.x} y1={plotTop} x2={hover.x} y2={plotBottom} />
+              </g>
+            )}
+            <rect
+              x={plotLeft}
+              y={plotTop}
+              width={plotWidth}
+              height={plotHeight}
+              fill="transparent"
+              className="plot-hover-area"
+              onPointerDown={(event) => {
+                if (cursors) {
+                  moveMeasurement(event, activeCursor)
+                  setActiveCursor(activeCursor === 'a' ? 'b' : 'a')
+                } else if (event.button === 0) {
+                  beginXDrag(event)
+                  beginYDrag(event)
+                }
+              }}
+              onWheel={(event) => {
+                handleXWheel(event)
+                handleYWheel(event)
+              }}
+              onPointerUp={(event) => {
+                finishXDrag(event)
+                finishYDrag(event)
+              }}
+              onPointerCancel={() => {
+                xDrag.current = null
+                yDrag.current = null
+              }}
+              onPointerMove={
+                cursors
+                  ? undefined
+                  : (event) => {
+                      if (xDrag.current || yDrag.current) {
+                        moveXDrag(event)
+                        moveYDrag(event)
+                      } else handlePlotHover(event)
                     }
+              }
+              onPointerLeave={clearPlotHover}
+            />
+            {cursors && (
+              <g className="plot-measurement-selection">
+                <rect
+                  x={clamp(Math.min(indexToX(cursors.a), indexToX(cursors.b)), plotLeft, plotRight)}
+                  y={plotTop}
+                  width={Math.max(
+                    0,
+                    clamp(Math.max(indexToX(cursors.a), indexToX(cursors.b)), plotLeft, plotRight) -
+                      clamp(Math.min(indexToX(cursors.a), indexToX(cursors.b)), plotLeft, plotRight)
+                  )}
+                  height={plotHeight}
+                  role="slider"
+                  tabIndex={0}
+                  aria-label="整体平移双游标"
+                  aria-valuemin={1}
+                  aria-valuemax={allSamples.length - Math.abs(cursors.b - cursors.a)}
+                  aria-valuenow={Math.min(cursors.a, cursors.b) + 1}
+                  onPointerDown={(event) => {
+                    if (event.button !== 0) return
+                    event.preventDefault()
+                    event.stopPropagation()
+                    const rect = event.currentTarget.ownerSVGElement!.getBoundingClientRect()
+                    rangeDrag.current = {
+                      anchor: xToIndex(((event.clientX - rect.left) / rect.width) * 1000),
+                      cursors: { ...cursors }
+                    }
+                    event.currentTarget.setPointerCapture(event.pointerId)
                   }}
-                  onWheel={(event) => {
-                    handleXWheel(event)
-                    handleYWheel(event)
+                  onPointerMove={(event) => {
+                    const drag = rangeDrag.current
+                    if (!drag) return
+                    const rect = event.currentTarget.ownerSVGElement!.getBoundingClientRect()
+                    const index = xToIndex(((event.clientX - rect.left) / rect.width) * 1000)
+                    setCursors(shiftPlotCursors(drag.cursors, index - drag.anchor, liveEndIndex))
                   }}
                   onPointerUp={(event) => {
-                    finishXDrag(event)
-                    finishYDrag(event)
+                    rangeDrag.current = null
+                    if (event.currentTarget.hasPointerCapture(event.pointerId))
+                      if (event.currentTarget.hasPointerCapture(event.pointerId))
+                        event.currentTarget.releasePointerCapture(event.pointerId)
                   }}
                   onPointerCancel={() => {
-                    xDrag.current = null
-                    yDrag.current = null
+                    rangeDrag.current = null
                   }}
-                  onPointerMove={
-                    cursors
-                      ? undefined
-                      : (event) => {
-                          if (xDrag.current || yDrag.current) {
-                            moveXDrag(event)
-                            moveYDrag(event)
-                          } else handlePlotHover(event)
-                        }
-                  }
-                  onPointerLeave={clearPlotHover}
+                  onLostPointerCapture={() => {
+                    rangeDrag.current = null
+                  }}
+                  onKeyDown={(event) => {
+                    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+                    event.preventDefault()
+                    const offset =
+                      event.key === 'Home'
+                        ? -liveEndIndex
+                        : event.key === 'End'
+                          ? liveEndIndex
+                          : event.key === 'ArrowLeft'
+                            ? -1
+                            : 1
+                    setCursors(shiftPlotCursors(cursors, offset, liveEndIndex))
+                  }}
                 />
-                {cursors && (
-                  <g className="plot-measurement-selection">
+              </g>
+            )}
+            {cursors &&
+              (['a', 'b'] as const).map((which) => {
+                const index = cursors[which]
+                if (index < startIndex || index > endIndex) return null
+                const x = indexToX(index)
+                return (
+                  <g key={which} className={`plot-measurement-cursor cursor-${which}`}>
+                    <line x1={x} x2={x} y1={plotTop} y2={plotBottom} />
                     <rect
-                      x={clamp(
-                        Math.min(indexToX(cursors.a), indexToX(cursors.b)),
-                        plotLeft,
-                        plotRight
-                      )}
+                      x={x - 9}
                       y={plotTop}
-                      width={Math.max(
-                        0,
-                        clamp(
-                          Math.max(indexToX(cursors.a), indexToX(cursors.b)),
-                          plotLeft,
-                          plotRight
-                        ) -
-                          clamp(
-                            Math.min(indexToX(cursors.a), indexToX(cursors.b)),
-                            plotLeft,
-                            plotRight
-                          )
-                      )}
-                      height={plotHeight}
+                      width={18}
+                      height={plotHeight - 12}
+                      fill="transparent"
                       role="slider"
                       tabIndex={0}
-                      aria-label="整体平移双游标"
+                      aria-label={`测量游标 ${which.toUpperCase()}`}
                       aria-valuemin={1}
-                      aria-valuemax={allSamples.length - Math.abs(cursors.b - cursors.a)}
-                      aria-valuenow={Math.min(cursors.a, cursors.b) + 1}
+                      aria-valuemax={allSamples.length}
+                      aria-valuenow={index + 1}
                       onPointerDown={(event) => {
-                        if (event.button !== 0) return
                         event.preventDefault()
                         event.stopPropagation()
-                        const rect = event.currentTarget.ownerSVGElement!.getBoundingClientRect()
-                        rangeDrag.current = {
-                          anchor: xToIndex(((event.clientX - rect.left) / rect.width) * 1000),
-                          cursors: { ...cursors }
-                        }
+                        setActiveCursor(which)
+                        cursorDrag.current = which
                         event.currentTarget.setPointerCapture(event.pointerId)
                       }}
                       onPointerMove={(event) => {
-                        const drag = rangeDrag.current
-                        if (!drag) return
-                        const rect = event.currentTarget.ownerSVGElement!.getBoundingClientRect()
-                        const index = xToIndex(((event.clientX - rect.left) / rect.width) * 1000)
-                        setCursors(
-                          shiftPlotCursors(drag.cursors, index - drag.anchor, liveEndIndex)
-                        )
+                        if (cursorDrag.current === which) moveMeasurement(event, which)
                       }}
                       onPointerUp={(event) => {
-                        rangeDrag.current = null
                         if (event.currentTarget.hasPointerCapture(event.pointerId))
                           if (event.currentTarget.hasPointerCapture(event.pointerId))
                             event.currentTarget.releasePointerCapture(event.pointerId)
+                        cursorDrag.current = null
                       }}
                       onPointerCancel={() => {
-                        rangeDrag.current = null
-                      }}
-                      onLostPointerCapture={() => {
-                        rangeDrag.current = null
+                        cursorDrag.current = null
                       }}
                       onKeyDown={(event) => {
-                        if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
-                        event.preventDefault()
-                        const offset =
-                          event.key === 'Home'
-                            ? -liveEndIndex
-                            : event.key === 'End'
-                              ? liveEndIndex
-                              : event.key === 'ArrowLeft'
-                                ? -1
-                                : 1
-                        setCursors(shiftPlotCursors(cursors, offset, liveEndIndex))
+                        if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+                          event.preventDefault()
+                          changeCursor(
+                            which,
+                            event.key === 'Home'
+                              ? 0
+                              : event.key === 'End'
+                                ? liveEndIndex
+                                : index + (event.key === 'ArrowLeft' ? -1 : 1)
+                          )
+                        }
                       }}
                     />
                   </g>
-                )}
-                {cursors &&
-                  (['a', 'b'] as const).map((which) => {
-                    const index = cursors[which]
-                    if (index < startIndex || index > endIndex) return null
-                    const x = indexToX(index)
-                    return (
-                      <g key={which} className={`plot-measurement-cursor cursor-${which}`}>
-                        <line x1={x} x2={x} y1={plotTop} y2={plotBottom} />
-                        <rect
-                          x={x - 9}
-                          y={plotTop}
-                          width={18}
-                          height={plotHeight - 12}
-                          fill="transparent"
-                          role="slider"
-                          tabIndex={0}
-                          aria-label={`测量游标 ${which.toUpperCase()}`}
-                          aria-valuemin={1}
-                          aria-valuemax={allSamples.length}
-                          aria-valuenow={index + 1}
-                          onPointerDown={(event) => {
-                            event.preventDefault()
-                            event.stopPropagation()
-                            setActiveCursor(which)
-                            cursorDrag.current = which
-                            event.currentTarget.setPointerCapture(event.pointerId)
-                          }}
-                          onPointerMove={(event) => {
-                            if (cursorDrag.current === which) moveMeasurement(event, which)
-                          }}
-                          onPointerUp={(event) => {
-                            if (event.currentTarget.hasPointerCapture(event.pointerId))
-                              if (event.currentTarget.hasPointerCapture(event.pointerId))
-                                event.currentTarget.releasePointerCapture(event.pointerId)
-                            cursorDrag.current = null
-                          }}
-                          onPointerCancel={() => {
-                            cursorDrag.current = null
-                          }}
-                          onKeyDown={(event) => {
-                            if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
-                              event.preventDefault()
-                              changeCursor(
-                                which,
-                                event.key === 'Home'
-                                  ? 0
-                                  : event.key === 'End'
-                                    ? liveEndIndex
-                                    : index + (event.key === 'ArrowLeft' ? -1 : 1)
-                              )
-                            }
-                          }}
-                        />
-                      </g>
-                    )
-                  })}
-                <rect
-                  x={plotLeft}
-                  y={plotBottom - 10}
-                  width={plotWidth}
-                  height="50"
-                  fill="transparent"
-                  className="plot-x-axis-hit"
-                  onPointerEnter={() => setHoveredAxis('x')}
-                  onPointerLeave={() => {
-                    window.cancelAnimationFrame(axisCursorFrameRef.current)
-                    setHoveredAxis(null)
-                    setAxisCursor(null)
-                  }}
-                  onWheel={handleXWheel}
-                  onPointerDown={beginXDrag}
-                  onPointerMove={moveXAxisCursor}
-                  onPointerUp={finishXDrag}
-                  onPointerCancel={finishXDrag}
-                />
-                <rect
-                  x={plotRight - 10}
-                  y={plotTop}
-                  width="90"
-                  height={plotHeight}
-                  fill="transparent"
-                  className="plot-y-axis-hit"
-                  onPointerEnter={() => setHoveredAxis('y')}
-                  onPointerLeave={() => {
-                    window.cancelAnimationFrame(axisCursorFrameRef.current)
-                    setHoveredAxis(null)
-                    setAxisCursor(null)
-                  }}
-                  onWheel={handleYWheel}
-                  onPointerDown={beginYDrag}
-                  onPointerMove={moveYAxisCursor}
-                  onPointerUp={finishYDrag}
-                  onPointerCancel={finishYDrag}
-                />
-              </svg>
-            </>
-          ) : (
+                )
+              })}
+            <rect
+              x={plotLeft}
+              y={plotBottom - 10}
+              width={plotWidth}
+              height="50"
+              fill="transparent"
+              className="plot-x-axis-hit"
+              onPointerEnter={() => setHoveredAxis('x')}
+              onPointerLeave={() => {
+                window.cancelAnimationFrame(axisCursorFrameRef.current)
+                setHoveredAxis(null)
+                setAxisCursor(null)
+              }}
+              onWheel={handleXWheel}
+              onPointerDown={beginXDrag}
+              onPointerMove={moveXAxisCursor}
+              onPointerUp={finishXDrag}
+              onPointerCancel={finishXDrag}
+            />
+            <rect
+              x={plotRight - 10}
+              y={plotTop}
+              width="90"
+              height={plotHeight}
+              fill="transparent"
+              className="plot-y-axis-hit"
+              onPointerEnter={() => setHoveredAxis('y')}
+              onPointerLeave={() => {
+                window.cancelAnimationFrame(axisCursorFrameRef.current)
+                setHoveredAxis(null)
+                setAxisCursor(null)
+              }}
+              onWheel={handleYWheel}
+              onPointerDown={beginYDrag}
+              onPointerMove={moveYAxisCursor}
+              onPointerUp={finishYDrag}
+              onPointerCancel={finishYDrag}
+            />
+          </svg>
+          {!hasSeries && (
             <div className="plot-empty">
               <strong>{enabledPorts.length ? '等待数值数据…' : '尚未启用曲线端口'}</strong>
               <span>
@@ -2667,89 +2657,88 @@ export function PlotPanel({
               </span>
             </div>
           )}
-          {series.length > 0 && (
-            <div className="plot-axis-label-layer" aria-hidden="true">
-              {cursors &&
-                (['a', 'b'] as const).map((which) => {
-                  const index = cursors[which]
-                  if (index < startIndex || index > endIndex) return null
-                  return (
-                    <span
-                      key={which}
-                      className={`plot-cursor-label cursor-${which}`}
-                      style={{
-                        left: `${(indexToX(index) / 1000) * 100}%`,
-                        top: `calc(${(plotTop / 420) * 100}% + 4px)`,
-                        transform:
-                          indexToX(index) < plotLeft + 30
-                            ? 'translateX(8px)'
-                            : indexToX(index) > plotRight - 30
-                              ? 'translateX(calc(-100% - 8px))'
-                              : undefined
-                      }}
-                    >
-                      {which.toUpperCase()}
-                    </span>
-                  )
-                })}
-              {xTicks.map((tick, index) => (
-                <span
-                  key={`x-${tick.pointOffset}`}
-                  className="plot-html-x-label"
-                  style={{
-                    left: `${(tick.x / 1000) * 100}%`,
-                    transform:
-                      index === 0
-                        ? 'none'
-                        : index === xTicks.length - 1
-                          ? 'translateX(-100%)'
-                          : 'translateX(-50%)'
-                  }}
-                >
-                  {xMode === 'time'
+          <div className="plot-axis-label-layer" aria-hidden="true">
+            {cursors &&
+              (['a', 'b'] as const).map((which) => {
+                const index = cursors[which]
+                if (index < startIndex || index > endIndex) return null
+                return (
+                  <span
+                    key={which}
+                    className={`plot-cursor-label cursor-${which}`}
+                    style={{
+                      left: `${(indexToX(index) / 1000) * 100}%`,
+                      top: `calc(${(plotTop / 420) * 100}% + 4px)`,
+                      transform:
+                        indexToX(index) < plotLeft + 30
+                          ? 'translateX(8px)'
+                          : indexToX(index) > plotRight - 30
+                            ? 'translateX(calc(-100% - 8px))'
+                            : undefined
+                    }}
+                  >
+                    {which.toUpperCase()}
+                  </span>
+                )
+              })}
+            {xTicks.map((tick, index) => (
+              <span
+                key={`x-${tick.pointOffset}`}
+                className="plot-html-x-label"
+                style={{
+                  left: `${(tick.x / 1000) * 100}%`,
+                  transform:
+                    index === 0
+                      ? 'none'
+                      : index === xTicks.length - 1
+                        ? 'translateX(-100%)'
+                        : 'translateX(-50%)'
+                }}
+              >
+                {xMode === 'time'
+                  ? allSamples.length
                     ? formatTime(timeStart + ((tick.x - plotLeft) / plotWidth) * timeSpan, timeSpan)
-                    : tick.pointOffset}
-                </span>
-              ))}
-              {yTicks.map((tick) => (
-                <span
-                  key={`y-${tick.y}`}
-                  className="plot-html-y-label"
-                  style={{
-                    left: `${((plotRight + 15) / 1000) * 100}%`,
-                    top: `${(tick.y / 420) * 100}%`
-                  }}
-                >
-                  {formatAxisValue(tick.value)}
-                </span>
-              ))}
-              {axisCursor?.axis === 'x' && (
-                <span
-                  className="plot-axis-cursor-label x"
-                  style={{ left: `${(axisCursor.x / 1000) * 100}%` }}
-                >
-                  {xMode === 'time'
-                    ? formatTime(
-                        allSamples.at(axisCursor.pointOffset + liveEndIndex)?.timestamp ??
-                          timeStart,
-                        timeSpan
-                      )
-                    : axisCursor.pointOffset}
-                </span>
-              )}
-              {axisCursor?.axis === 'y' && (
-                <span
-                  className="plot-axis-cursor-label y"
-                  style={{
-                    left: `${((plotRight + 15) / 1000) * 100}%`,
-                    top: `${(axisCursor.y / 420) * 100}%`
-                  }}
-                >
-                  {formatAxisValue(axisCursor.value)}
-                </span>
-              )}
-            </div>
-          )}
+                    : `${formatAxisValue((((tick.x - plotLeft) / plotWidth - 1) * timeSpan) / 1000)} s`
+                  : tick.pointOffset}
+              </span>
+            ))}
+            {yTicks.map((tick) => (
+              <span
+                key={`y-${tick.y}`}
+                className="plot-html-y-label"
+                style={{
+                  left: `${((plotRight + 15) / 1000) * 100}%`,
+                  top: `${(tick.y / 420) * 100}%`
+                }}
+              >
+                {formatAxisValue(tick.value)}
+              </span>
+            ))}
+            {axisCursor?.axis === 'x' && (
+              <span
+                className="plot-axis-cursor-label x"
+                style={{ left: `${(axisCursor.x / 1000) * 100}%` }}
+              >
+                {xMode === 'time'
+                  ? formatTime(
+                      allSamples.at(axisCursor.pointOffset + liveEndIndex)?.timestamp ?? timeStart,
+                      timeSpan
+                    )
+                  : axisCursor.pointOffset}
+              </span>
+            )}
+            {axisCursor?.axis === 'y' && (
+              <span
+                className="plot-axis-cursor-label y"
+                style={{
+                  left: `${((plotRight + 15) / 1000) * 100}%`,
+                  top: `${(axisCursor.y / 420) * 100}%`
+                }}
+              >
+                {formatAxisValue(axisCursor.value)}
+              </span>
+            )}
+          </div>
           {hover && series.length > 0 && (
             <>
               <div className="plot-hover-markers" aria-hidden="true">

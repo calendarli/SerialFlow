@@ -220,6 +220,7 @@ export default function Manual(): React.JSX.Element {
             <p>
               先在对应串口配置中勾选“接收数据绘制曲线”。支持 <code>PWM=10, PID=-2.5</code>、
               <code>PWM:10</code> 或 <code>10,20,30</code> 等文本数值格式。
+              未收到数据或清空曲线后仍显示网格、坐标轴和等待提示；时间轴在无采样时显示相对秒数。
             </p>
             <ul>
               <li>
